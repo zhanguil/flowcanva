@@ -54,6 +54,7 @@ const emit = defineEmits<{
   (e: 'remove-asset', id: string): void
   (e: 'create-asset-from-screenshot', imageUrl: string, name: string): void
   (e: 'grid-split', data: { cols: number; rows: number; urls: string[] }): void
+  (e: 'image-generated', payload: { sourceNodeId: string; assets: any[] }): void
 }>()
 
 // 连线拖拽状态
@@ -511,6 +512,7 @@ function onPanelSave(content: string) {
         @update-asset="(id: string, data: any) => emit('update-asset', id, data)"
         @remove-asset="(id: string) => emit('remove-asset', id)"
         @create-asset-node="(imageUrl: string, name: string) => emit('create-asset-from-screenshot', imageUrl, name)"
+        @generated="(payload: any) => emit('image-generated', payload)"
       />
     </div>
 

@@ -15,6 +15,7 @@ type Handler struct {
 	log            *slog.Logger
 	vectorEngine   *VectorEngineProvider
 	imageModelFast string
+	uploadDir      string
 }
 
 // ─── Canvas handlers ────────────────────────────────────────────────

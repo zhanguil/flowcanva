@@ -334,6 +334,50 @@ async function handleCreateAssetFromScreenshot(imageUrl: string, name: string) {
   }
 }
 
+interface GeneratedAssetResult {
+  id: string
+  filename: string
+  url: string
+  size: number
+  width: number
+  height: number
+}
+
+async function handleGeneratedAssets(payload: { sourceNodeId: string; assets: GeneratedAssetResult[] }) {
+  const src = nodes.value.find(n => n.id === payload.sourceNodeId)
+  if (!src || payload.assets.length === 0) return
+
+  pushHistory()
+  const nodeWidth = 320
+  const nodeHeight = 300
+  const gap = 40
+  const columns = payload.assets.length > 1 ? 2 : 1
+  // 图片加载会把生图节点自适应放大；按其最大显示宽度预留空间，避免结果节点重叠。
+  const startLeft = src.x + Math.max(src.width, 660) + 60
+  const startTop = src.y
+
+  for (let i = 0; i < payload.assets.length; i++) {
+    const asset = payload.assets[i]
+    const col = i % columns
+    const row = Math.floor(i / columns)
+    const centerX = startLeft + col * (nodeWidth + gap) + nodeWidth / 2
+    const centerY = startTop + row * (nodeHeight + gap) + nodeHeight / 2
+    const node = await addNode('asset', centerX, centerY)
+    if (!node) continue
+    await updateNodeContent(node.id, JSON.stringify({
+      asset_id: asset.id,
+      url: asset.url,
+      name: asset.filename,
+      size: asset.size,
+      width: asset.width,
+      height: asset.height,
+    }))
+    await addEdge(payload.sourceNodeId, node.id)
+    selectedNodeId.value = payload.sourceNodeId
+  }
+  await loadAssets()
+}
+
 // 宫格分镜: 切图→生成资产节点网格排列
 async function handleGridSplit(data: { cols: number; rows: number; urls: string[] }) {
   const sid = selectedNodeId.value
@@ -433,8 +477,7 @@ async function handleSavePanel(content: string) {
   if (!node) return
 
   const isVideo = node.node_type === 'video'
-  const isImage = node.node_type === 'image'
-  const needsSplit = isVideo || isImage
+  const needsSplit = isVideo
 
   let results: any[] | null = null
   let parsedData: any = null
@@ -445,8 +488,6 @@ async function handleSavePanel(content: string) {
       if (!parsedData._loading) {
         if (isVideo && Array.isArray(parsedData.videos) && parsedData.videos.length > 1) {
           results = parsedData.videos
-        } else if (isImage && Array.isArray(parsedData.generated_images) && parsedData.generated_images.length > 1) {
-          results = parsedData.generated_images
         }
       }
     } catch {}
@@ -456,16 +497,14 @@ async function handleSavePanel(content: string) {
 
   if (results && results.length > 1) {
     const firstContent = { ...parsedData }
-    if (isVideo) firstContent.videos = [results[0]]
-    else firstContent.generated_images = [results[0]]
+    firstContent.videos = [results[0]]
     updateNodeContent(node.id, JSON.stringify(firstContent))
 
     const dx = node.width * 0.6
     const dy = node.height * 0.5
     for (let i = 1; i < results.length; i++) {
       const cloneData = { ...parsedData }
-      if (isVideo) cloneData.videos = [results[i]]
-      else cloneData.generated_images = [results[i]]
+      cloneData.videos = [results[i]]
 
       const savedId: string | null = selectedNodeId.value
       const cx = node.x + node.width / 2 + dx * (i - 1)
@@ -565,6 +604,7 @@ async function handleSavePanel(content: string) {
       @update-asset="handleUpdateAsset"
       @remove-asset="handleRemoveAsset"
       @create-asset-from-screenshot="handleCreateAssetFromScreenshot"
+      @image-generated="handleGeneratedAssets"
       @grid-split="handleGridSplit"
     />
 

@@ -88,7 +88,12 @@ func (h *Handler) UploadAsset(c *gin.Context) {
 	id := "ast_" + uuid.New().String()[:8]
 	ext := filepath.Ext(file.Filename)
 	savedName := id + ext
-	savePath := filepath.Join("uploads", savedName)
+	uploadDir := h.assetUploadDir()
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	savePath := filepath.Join(uploadDir, savedName)
 
 	src, err := file.Open()
 	if err != nil {
@@ -124,9 +129,16 @@ func (h *Handler) UploadAsset(c *gin.Context) {
 		"filename": file.Filename,
 		"url":      url,
 		"size":     file.Size,
-			"category": "其他",
-			"tags":     "[]",
+		"category": "其他",
+		"tags":     "[]",
 	})
+}
+
+func (h *Handler) assetUploadDir() string {
+	if h != nil && h.uploadDir != "" {
+		return h.uploadDir
+	}
+	return "uploads"
 }
 
 func (h *Handler) DeleteAsset(c *gin.Context) {

@@ -16,12 +16,17 @@ func initDB(path string, log *slog.Logger) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The canvas often saves node content and image dimensions back-to-back.
+	// A single writer connection avoids transient SQLITE_BUSY responses while
+	// preserving SQLite as the project's lightweight local store.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
 
-		if err := migrate(db, log); err != nil {
+	if err := migrate(db, log); err != nil {
 		return nil, err
 	}
 

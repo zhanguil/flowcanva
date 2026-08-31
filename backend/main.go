@@ -26,7 +26,7 @@ func main() {
 	defer db.Close()
 
 	vectorEngine := NewVectorEngineProvider(cfg.VectorEngineBaseURL, cfg.VectorEngineAPIKey, nil)
-	h := &Handler{db: db, log: logger, vectorEngine: vectorEngine, imageModelFast: cfg.ImageModelFast}
+	h := &Handler{db: db, log: logger, vectorEngine: vectorEngine, imageModelFast: cfg.ImageModelFast, uploadDir: cfg.UploadDir}
 	r := setupRouter(h, cfg)
 
 	logger.Info("server ready", "port", cfg.Port)

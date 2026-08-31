@@ -12,7 +12,17 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'save', content: string): void
   (e: 'remove-connected-edge', edgeId: string): void
+  (e: 'generated', payload: { sourceNodeId: string; assets: GeneratedAsset[] }): void
 }>()
+
+interface GeneratedAsset {
+  id: string
+  filename: string
+  url: string
+  size: number
+  width: number
+  height: number
+}
 
 const prompt = ref('')
 const promptHtml = ref('')
@@ -33,8 +43,7 @@ const selectedPreset = ref('')
 
 const ratioOptions = ['自适应', '1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16', '5:4', '4:5', '21:9']
 const resolutionOptions = ['1K', '2K', '4K']
-// 第四阶段先验证最小单图链路；批量数量将在结果落盘阶段接通。
-const countOptions = [1]
+const countOptions = [1, 2, 4]
 
 const presets = ref<{ id: string; name: string; prompt: string; category: string; scope: string }[]>([])
 const presetCategories = ref<string[]>([])
@@ -244,10 +253,12 @@ function insertMention(img: { id: any; name: string; src: string }) {
 }
 
 async function generate() {
-  if (!prompt.value || loading.value) return
+  const requestPrompt = (prompt.value || editableRef.value?.textContent || '').trim()
+  if (!requestPrompt || loading.value) return
+  if (!prompt.value) prompt.value = requestPrompt
   loading.value = true
   try {
-    const body = { profile: selectedModel.value, prompt: prompt.value, n: selectedCount.value, aspect_ratio: selectedRatio.value, image_size: selectedResolution.value }
+    const body = { profile: selectedModel.value, prompt: requestPrompt, n: selectedCount.value, aspect_ratio: selectedRatio.value, image_size: selectedResolution.value }
 
     // 先清空旧图，保存到节点让画布显示空白/加载状态
     generatedImages.value = []
@@ -263,6 +274,9 @@ async function generate() {
       for (let i = 0; i < data.data.length; i++) generatedImages.value.push({ id: Date.now() + i, url: data.data[i].url || data.data[i].b64_json || '' })
     }
     emit('save', buildContent({ images: images.value, generated_images: generatedImages.value }))
+    if (props.node?.id && Array.isArray(data.data) && data.data.length > 0) {
+      emit('generated', { sourceNodeId: props.node.id, assets: data.data })
+    }
   } catch (e: any) {
     prompt.value = prompt.value + '\n\n**错误:** ' + (e.message || '未知错误')
     promptHtml.value = prompt.value
@@ -363,7 +377,7 @@ watch(modalOpen, async (v) => {
             <svg class="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-white/70" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </div>
         </div>
-        <button class="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-neutral-900 hover:bg-neutral-200 transition-colors disabled:opacity-50" :disabled="loading" @click="generate">
+        <button class="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-neutral-900 hover:bg-neutral-200 transition-colors disabled:opacity-50" title="生成图片" aria-label="生成图片" :disabled="loading" @pointerdown.stop.prevent="generate" @click.stop.prevent="generate">
           <svg v-if="!loading" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
           <span v-else class="loading loading-spinner loading-xs" />
         </button>
@@ -402,7 +416,7 @@ watch(modalOpen, async (v) => {
             <span class="text-[10px] text-white/30">预设</span>
             <select v-model="selectedPreset" @change="applyPreset" class="appearance-none bg-white/5 border border-white/10 rounded text-xs text-white/50 pl-1.5 pr-4 py-1.5"><option value="" class="bg-neutral-800 text-white/40">预设</option><optgroup v-for="cat in presetCategories" :key="cat" :label="cat"><option v-for="pr in presets.filter(p => p.category === cat)" :key="pr.id" :value="pr.id" class="bg-neutral-800 text-white">{{ pr.name }}</option></optgroup></select>
           </div>
-          <button class="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-neutral-900 hover:bg-neutral-200 disabled:opacity-50" :disabled="loading" @click="generate">
+          <button class="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-neutral-900 hover:bg-neutral-200 disabled:opacity-50" title="生成图片" aria-label="生成图片" :disabled="loading" @pointerdown.stop.prevent="generate" @click.stop.prevent="generate">
             <svg v-if="!loading" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
             <span v-else class="loading loading-spinner loading-xs" />
           </button>

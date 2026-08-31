@@ -70,7 +70,7 @@ func setupRouter(h *Handler, cfg Config) *gin.Engine {
 		admin.DELETE("/presets/:id", h.DeletePreset)
 	}
 
-	r.Static("/uploads", "./uploads")
+	r.Static("/uploads", cfg.UploadDir)
 
 	if cfg.DevMode {
 		adminURL, _ := url.Parse(cfg.AdminDevURL)
