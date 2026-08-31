@@ -35,7 +35,11 @@ let imageCounter = 0
 const previewImg = ref<{ id: number; url: string } | null>(null)
 
 const selectedModel = ref('fast')
-const models = [{ value: 'fast', label: 'Nano Banana 2' }]
+const models = [
+  { value: 'fast', label: 'Nano Banana 2' },
+  { value: 'pro', label: 'Nano Banana Pro' },
+  { value: 'edit', label: 'GPT Image 2' },
+]
 const selectedRatio = ref('1:1')
 const selectedResolution = ref('1K')
 const selectedCount = ref(1)
@@ -348,7 +352,7 @@ watch(modalOpen, async (v) => {
         <div class="flex items-center gap-1">
           <span class="text-[10px] text-white/30 ml-1">模型</span>
           <div class="relative inline-flex items-center">
-            <select v-model="selectedModel" class="text-xs bg-transparent border-0 text-white/70 hover:text-white h-6 py-0 pl-0 pr-6 w-[96px] outline-none appearance-none cursor-pointer [color-scheme:dark]">
+            <select v-model="selectedModel" class="text-xs bg-transparent border-0 text-white/70 hover:text-white h-6 py-0 pl-0 pr-6 w-[124px] outline-none appearance-none cursor-pointer [color-scheme:dark]">
               <option v-for="m in models" :key="m.value" :value="m.value" class="bg-neutral-900 text-white">{{ m.label }}</option>
             </select>
             <svg class="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-white/70" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>

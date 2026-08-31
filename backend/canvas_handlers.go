@@ -16,6 +16,8 @@ type Handler struct {
 	vectorEngine   *VectorEngineProvider
 	assistantModel string
 	imageModelFast string
+	imageModelPro  string
+	imageModelEdit string
 	uploadDir      string
 }
 

@@ -21,6 +21,7 @@ import (
 )
 
 type VectorImageRequest struct {
+	Profile         string   `json:"profile"`
 	Prompt          string   `json:"prompt"`
 	AspectRatio     string   `json:"aspect_ratio"`
 	ImageSize       string   `json:"image_size"`
@@ -93,6 +94,15 @@ func (h *Handler) GenerateImage(c *gin.Context) {
 		return
 	}
 
+	profile := allowImageProfile(req.Profile)
+	if profile == "edit" {
+		h.generateGPTImage(c, req, profile)
+		return
+	}
+	h.generateGeminiImage(c, req, profile)
+}
+
+func (h *Handler) generateGeminiImage(c *gin.Context, req VectorImageRequest, profile string) {
 	count := allowImageCount(req.N)
 	payload, err := buildGeminiImagePayload(req, h.assetUploadDir())
 	if err != nil {
@@ -100,8 +110,15 @@ func (h *Handler) GenerateImage(c *gin.Context) {
 		return
 	}
 	model := strings.TrimSpace(h.imageModelFast)
+	if profile == "pro" {
+		model = strings.TrimSpace(h.imageModelPro)
+	}
 	if model == "" {
-		model = "gemini-3.1-flash-image-preview"
+		if profile == "pro" {
+			model = "gemini-3-pro-image-preview"
+		} else {
+			model = "gemini-3.1-flash-image-preview"
+		}
 	}
 	apiPath := "/v1beta/models/" + url.PathEscape(model) + ":generateContent"
 
@@ -114,7 +131,7 @@ func (h *Handler) GenerateImage(c *gin.Context) {
 		}
 		batch, err := normalizeGeminiImages(responseBody)
 		if err != nil {
-			h.log.Error("invalid VectorEngine image response", "model_profile", "fast", "error", err)
+			h.log.Error("invalid VectorEngine image response", "model_profile", profile, "error", err)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "VectorEngine 未返回有效图片"})
 			return
 		}
@@ -122,13 +139,13 @@ func (h *Handler) GenerateImage(c *gin.Context) {
 	}
 	generated = generated[:count]
 
-	assets, err := h.persistGeneratedImages(generated)
+	assets, err := h.persistGeneratedImages(generated, profile)
 	if err != nil {
-		h.log.Error("persist generated images failed", "model_profile", "fast", "error", err)
+		h.log.Error("persist generated images failed", "model_profile", profile, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成图片保存失败"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": assets, "model_profile": "fast"})
+	c.JSON(http.StatusOK, gin.H{"data": assets, "model_profile": profile})
 }
 
 func buildGeminiImagePayload(req VectorImageRequest, uploadDir string) (geminiGenerateRequest, error) {
@@ -211,7 +228,7 @@ func loadReferenceImage(reference, uploadDir string) (geminiInlineData, error) {
 }
 
 func (h *Handler) writeImageGenerationError(c *gin.Context, err error) {
-	h.log.Error("VectorEngine image generation failed", "model_profile", "fast", "error", err)
+	h.log.Error("VectorEngine image generation failed", "error", err)
 	var apiErr *VectorEngineAPIError
 	if errors.As(err, &apiErr) {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "VectorEngine 图片生成失败", "upstream_status": apiErr.StatusCode})
@@ -250,7 +267,7 @@ func normalizeGeminiImages(body []byte) ([]geminiInlineData, error) {
 	return images, nil
 }
 
-func (h *Handler) persistGeneratedImages(images []geminiInlineData) ([]GeneratedAsset, error) {
+func (h *Handler) persistGeneratedImages(images []geminiInlineData, profile string) ([]GeneratedAsset, error) {
 	if h.db == nil {
 		return nil, errors.New("数据库未初始化")
 	}
@@ -261,7 +278,7 @@ func (h *Handler) persistGeneratedImages(images []geminiInlineData) ([]Generated
 
 	assets := make([]GeneratedAsset, 0, len(images))
 	for _, generated := range images {
-		asset, err := h.persistGeneratedImage(uploadDir, generated)
+		asset, err := h.persistGeneratedImage(uploadDir, generated, profile)
 		if err != nil {
 			return nil, err
 		}
@@ -270,7 +287,7 @@ func (h *Handler) persistGeneratedImages(images []geminiInlineData) ([]Generated
 	return assets, nil
 }
 
-func (h *Handler) persistGeneratedImage(uploadDir string, generated geminiInlineData) (GeneratedAsset, error) {
+func (h *Handler) persistGeneratedImage(uploadDir string, generated geminiInlineData, profile string) (GeneratedAsset, error) {
 	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(generated.Data))
 	if err != nil {
 		return GeneratedAsset{}, fmt.Errorf("解码生成图片: %w", err)
@@ -292,7 +309,7 @@ func (h *Handler) persistGeneratedImage(uploadDir string, generated geminiInline
 	}
 	asset := GeneratedAsset{
 		ID: id, Filename: filename, URL: "/uploads/" + filename, Size: int64(len(raw)),
-		Width: width, Height: height, Category: "AI生成", Tags: `["ai-generated","nano-banana-2"]`,
+		Width: width, Height: height, Category: "AI生成", Tags: generatedImageTags(profile),
 	}
 	_, err = h.db.Exec(`INSERT INTO assets (id, filename, url, size, width, height, category, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		asset.ID, asset.Filename, asset.URL, asset.Size, asset.Width, asset.Height, asset.Category, asset.Tags)
@@ -323,6 +340,28 @@ func allowImageCount(count int) int {
 		return count
 	}
 	return 1
+}
+
+func allowImageProfile(profile string) string {
+	switch strings.ToLower(strings.TrimSpace(profile)) {
+	case "pro":
+		return "pro"
+	case "edit":
+		return "edit"
+	default:
+		return "fast"
+	}
+}
+
+func generatedImageTags(profile string) string {
+	modelTag := "nano-banana-2"
+	if profile == "pro" {
+		modelTag = "nano-banana-pro"
+	} else if profile == "edit" {
+		modelTag = "gpt-image-2"
+	}
+	tags, _ := json.Marshal([]string{"ai-generated", modelTag})
+	return string(tags)
 }
 
 func allowValue(value, fallback string, allowed ...string) string {
