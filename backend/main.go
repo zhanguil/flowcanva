@@ -25,7 +25,8 @@ func main() {
 	}
 	defer db.Close()
 
-	h := &Handler{db: db, log: logger}
+	vectorEngine := NewVectorEngineProvider(cfg.VectorEngineBaseURL, cfg.VectorEngineAPIKey, nil)
+	h := &Handler{db: db, log: logger, vectorEngine: vectorEngine}
 	r := setupRouter(h, cfg)
 
 	logger.Info("server ready", "port", cfg.Port)

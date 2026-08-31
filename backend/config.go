@@ -8,15 +8,21 @@ import (
 )
 
 type Config struct {
-	Port         string
-	DBPath       string
-	DevMode      bool
-	Embedded     bool
-	ConsoleDir   string
-	CanvasDir    string
-	UploadDir    string
-	AdminDevURL  string
-	CanvasDevURL string
+	Port                string
+	DBPath              string
+	DevMode             bool
+	Embedded            bool
+	ConsoleDir          string
+	CanvasDir           string
+	UploadDir           string
+	AdminDevURL         string
+	CanvasDevURL        string
+	VectorEngineBaseURL string
+	VectorEngineAPIKey  string
+	AssistantModel      string
+	ImageModelFast      string
+	ImageModelPro       string
+	ImageModelEdit      string
 }
 
 func loadConfig() Config {
@@ -26,15 +32,21 @@ func loadConfig() Config {
 		embedded = embedHasContent()
 	}
 	return Config{
-		Port:         envOrDefault("PORT", ":6789"),
-		DBPath:       envOrDefault("DB_PATH", "./data.db"),
-		DevMode:      os.Getenv("DEV_MODE") == "true",
-		Embedded:     embedded,
-		ConsoleDir:   envOrDefault("CONSOLE_DIR", "../frontend-admin/dist"),
-		CanvasDir:    envOrDefault("CANVAS_DIR", "../frontend-canvas/dist"),
-		UploadDir:    envOrDefault("UPLOAD_DIR", "./uploads"),
-		AdminDevURL:  envOrDefault("ADMIN_DEV_URL", "http://localhost:5174"),
-		CanvasDevURL: envOrDefault("CANVAS_DEV_URL", "http://localhost:5173"),
+		Port:                envOrDefault("PORT", ":6789"),
+		DBPath:              envOrDefault("DB_PATH", "./data.db"),
+		DevMode:             os.Getenv("DEV_MODE") == "true",
+		Embedded:            embedded,
+		ConsoleDir:          envOrDefault("CONSOLE_DIR", "../frontend-admin/dist"),
+		CanvasDir:           envOrDefault("CANVAS_DIR", "../frontend-canvas/dist"),
+		UploadDir:           envOrDefault("UPLOAD_DIR", "./uploads"),
+		AdminDevURL:         envOrDefault("ADMIN_DEV_URL", "http://localhost:5174"),
+		CanvasDevURL:        envOrDefault("CANVAS_DEV_URL", "http://localhost:5173"),
+		VectorEngineBaseURL: os.Getenv("VECTORENGINE_BASE_URL"),
+		VectorEngineAPIKey:  os.Getenv("VECTORENGINE_API_KEY"),
+		AssistantModel:      os.Getenv("ASSISTANT_MODEL"),
+		ImageModelFast:      envOrDefault("IMAGE_MODEL_FAST", "gemini-3.1-flash-image-preview"),
+		ImageModelPro:       envOrDefault("IMAGE_MODEL_PRO", "gemini-3-pro-image-preview"),
+		ImageModelEdit:      envOrDefault("IMAGE_MODEL_EDIT", "gpt-image-2"),
 	}
 }
 

@@ -11,8 +11,9 @@ import (
 )
 
 type Handler struct {
-	db  *sql.DB
-	log *slog.Logger
+	db           *sql.DB
+	log          *slog.Logger
+	vectorEngine *VectorEngineProvider
 }
 
 // ─── Canvas handlers ────────────────────────────────────────────────
