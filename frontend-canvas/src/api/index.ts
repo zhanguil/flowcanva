@@ -166,3 +166,10 @@ export async function* chatWithLLMStream(model: string, messages: { role: string
     }
   }
 }
+
+export function chatWithAssistant(messages: { role: 'user' | 'assistant'; content: string }[]) {
+  return req<{ content: string; model_profile: 'assistant' }>(`${BASE}/assistant/chat`, {
+    method: 'POST',
+    body: JSON.stringify({ messages }),
+  })
+}

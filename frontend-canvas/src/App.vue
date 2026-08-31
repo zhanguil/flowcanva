@@ -7,6 +7,7 @@ import Minimap from './components/Minimap.vue'
 import NodeLayerPanel from './components/NodeLayerPanel.vue'
 import AssetManager from './components/AssetManager.vue'
 import PresetManager from './components/PresetManager.vue'
+import AIAssistantPanel from './components/AIAssistantPanel.vue'
 import { useCanvas } from './composables/useCanvas'
 import { useNodes } from './composables/useNodes'
 import { useEdges } from './composables/useEdges'
@@ -78,6 +79,7 @@ loadAssets()
 
 const showAssetManager = ref(false)
 const showPresetManager = ref(false)
+const showAssistant = ref(true)
 
 const { loadNodeConfigs } = useNodeConfigs()
 
@@ -378,6 +380,31 @@ async function handleGeneratedAssets(payload: { sourceNodeId: string; assets: Ge
   await loadAssets()
 }
 
+async function handleApplyAssistantPrompt(prompt: string) {
+  const cleanPrompt = prompt.trim()
+  if (!cleanPrompt) return
+  const source = selectedNode.value
+  let centerX: number
+  let centerY: number
+  if (source) {
+    centerX = source.x + source.width + 80 + 200
+    centerY = source.y + 150
+  } else {
+    const world = screenToWorld(Math.max(220, (window.innerWidth - 390) / 2), window.innerHeight / 2)
+    centerX = world.wx
+    centerY = world.wy
+  }
+  pushHistory()
+  const node = await addNode('image', centerX, centerY)
+  if (!node) return
+  await updateNodeContent(node.id, JSON.stringify({
+    prompt: cleanPrompt,
+    promptHtml: '',
+    images: [],
+    generated_images: [],
+  }))
+}
+
 // 宫格分镜: 切图→生成资产节点网格排列
 async function handleGridSplit(data: { cols: number; rows: number; urls: string[] }) {
   const sid = selectedNodeId.value
@@ -570,6 +597,14 @@ async function handleSavePanel(content: string) {
         </template>
       </div>
       <div class="flex items-center gap-2">
+        <button
+          class="btn btn-sm gap-1.5 text-xs"
+          :class="showAssistant ? 'btn-primary' : 'btn-ghost'"
+          @click="showAssistant = !showAssistant"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8L12 3z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z"/></svg>
+          AI Assistant
+        </button>
         <a
           :href="consoleURL"
           class="btn btn-ghost btn-sm gap-1.5 text-xs font-semibold"
@@ -645,5 +680,10 @@ async function handleSavePanel(content: string) {
 
     <AssetManager v-if="showAssetManager" @close="showAssetManager = false" />
     <PresetManager v-if="showPresetManager" :canvas-id="canvasId ?? ''" @close="showPresetManager = false" />
+    <AIAssistantPanel
+      :open="showAssistant"
+      @close="showAssistant = false"
+      @apply-prompt="handleApplyAssistantPrompt"
+    />
   </div>
 </template>

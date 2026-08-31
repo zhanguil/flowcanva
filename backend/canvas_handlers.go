@@ -14,6 +14,7 @@ type Handler struct {
 	db             *sql.DB
 	log            *slog.Logger
 	vectorEngine   *VectorEngineProvider
+	assistantModel string
 	imageModelFast string
 	uploadDir      string
 }

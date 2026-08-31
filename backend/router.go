@@ -39,6 +39,7 @@ func setupRouter(h *Handler, cfg Config) *gin.Engine {
 		api.DELETE("/canvases/:cid/edges/:id", h.DeleteEdge)
 
 		api.POST("/llm/chat", h.ChatWithLLM)
+		api.POST("/assistant/chat", h.ChatWithAssistant)
 
 		api.POST("/images/generate", h.GenerateImage)
 
@@ -108,7 +109,7 @@ func setupRouter(h *Handler, cfg Config) *gin.Engine {
 				serveEmbedHTML(c, CanvasEmbedFS, "canvas-dist/index.html")
 			})
 
-		r.NoRoute(func(c *gin.Context) {
+			r.NoRoute(func(c *gin.Context) {
 				path := c.Request.URL.Path
 				if strings.HasPrefix(path, "/canvas") {
 					// 先尝试 canvas-dist 下的实际文件(模型/图片等),读不到再回退 SPA index.html
