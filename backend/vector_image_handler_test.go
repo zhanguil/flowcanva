@@ -1,7 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -126,4 +131,64 @@ func TestImageGenerationDefaultsToOneResult(t *testing.T) {
 			t.Fatalf("count=%d got=%d", count, got)
 		}
 	}
+}
+
+func TestBuildGeminiImagePayloadIncludesDataAndUploadedReferences(t *testing.T) {
+	raw := testPNG(t)
+	uploadDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(uploadDir, "reference.png"), raw, 0644); err != nil {
+		t.Fatal(err)
+	}
+	request := VectorImageRequest{
+		Prompt: "keep product from image 1 and lighting from image 2",
+		ReferenceImages: []string{
+			"data:image/png;base64," + base64.StdEncoding.EncodeToString(raw),
+			"/uploads/reference.png",
+		},
+	}
+
+	payload, err := buildGeminiImagePayload(request, uploadDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := payload.Contents[0].Parts
+	if len(parts) != 5 || parts[0].Text != "参考图1：" || parts[2].Text != "参考图2：" || parts[4].Text != request.Prompt {
+		t.Fatalf("unexpected reference part order: %#v", parts)
+	}
+	for _, index := range []int{1, 3} {
+		if parts[index].InlineData == nil || parts[index].InlineData.MIMEType != "image/png" {
+			t.Fatalf("part %d is not an inline PNG: %#v", index, parts[index])
+		}
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte("/uploads/reference.png")) || !bytes.Contains(encoded, []byte(`"inline_data"`)) {
+		t.Fatalf("payload should contain inline bytes instead of a local URL: %s", encoded)
+	}
+}
+
+func TestBuildGeminiImagePayloadRejectsUnsafeReferences(t *testing.T) {
+	for _, reference := range []string{
+		"https://example.com/reference.png",
+		"/uploads/../secret.png",
+		"data:image/png,not-base64",
+	} {
+		_, err := buildGeminiImagePayload(VectorImageRequest{Prompt: "chair", ReferenceImages: []string{reference}}, t.TempDir())
+		if err == nil {
+			t.Fatalf("reference %q should be rejected", reference)
+		}
+	}
+}
+
+func testPNG(t *testing.T) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	img.Set(0, 0, color.RGBA{R: 180, G: 120, B: 60, A: 255})
+	if err := png.Encode(&buffer, img); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
 }

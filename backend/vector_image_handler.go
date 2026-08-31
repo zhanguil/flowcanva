@@ -21,10 +21,11 @@ import (
 )
 
 type VectorImageRequest struct {
-	Prompt      string `json:"prompt"`
-	AspectRatio string `json:"aspect_ratio"`
-	ImageSize   string `json:"image_size"`
-	N           int    `json:"n"`
+	Prompt          string   `json:"prompt"`
+	AspectRatio     string   `json:"aspect_ratio"`
+	ImageSize       string   `json:"image_size"`
+	N               int      `json:"n"`
+	ReferenceImages []string `json:"reference_images"`
 }
 
 type geminiGenerateRequest struct {
@@ -44,8 +45,8 @@ type geminiPart struct {
 }
 
 type geminiInlineData struct {
-	MIMEType      string `json:"mime_type"`
-	MIMETypeCamel string `json:"mimeType"`
+	MIMEType      string `json:"mime_type,omitempty"`
+	MIMETypeCamel string `json:"mimeType,omitempty"`
 	Data          string `json:"data"`
 }
 
@@ -93,7 +94,11 @@ func (h *Handler) GenerateImage(c *gin.Context) {
 	}
 
 	count := allowImageCount(req.N)
-	payload := buildGeminiImagePayload(req)
+	payload, err := buildGeminiImagePayload(req, h.assetUploadDir())
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	model := strings.TrimSpace(h.imageModelFast)
 	if model == "" {
 		model = "gemini-3.1-flash-image-preview"
@@ -126,16 +131,83 @@ func (h *Handler) GenerateImage(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": assets, "model_profile": "fast"})
 }
 
-func buildGeminiImagePayload(req VectorImageRequest) geminiGenerateRequest {
+func buildGeminiImagePayload(req VectorImageRequest, uploadDir string) (geminiGenerateRequest, error) {
 	ratio := allowValue(req.AspectRatio, "1:1", "1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "5:4", "4:5", "21:9")
 	imageSize := allowValue(strings.ToUpper(req.ImageSize), "1K", "1K", "2K", "4K")
+	parts, err := buildReferenceParts(req.ReferenceImages, uploadDir)
+	if err != nil {
+		return geminiGenerateRequest{}, err
+	}
+	parts = append(parts, geminiPart{Text: req.Prompt})
 	return geminiGenerateRequest{
-		Contents: []geminiContent{{Role: "user", Parts: []geminiPart{{Text: req.Prompt}}}},
+		Contents: []geminiContent{{Role: "user", Parts: parts}},
 		GenerationConfig: geminiGenerationConfig{
 			ResponseModalities: []string{"IMAGE"},
 			ImageConfig:        geminiImageConfig{AspectRatio: ratio, ImageSize: imageSize},
 		},
+	}, nil
+}
+
+const (
+	maxReferenceImages    = 8
+	maxReferenceImageSize = 20 << 20
+)
+
+func buildReferenceParts(references []string, uploadDir string) ([]geminiPart, error) {
+	if len(references) > maxReferenceImages {
+		return nil, fmt.Errorf("参考图片最多支持 %d 张", maxReferenceImages)
 	}
+	parts := make([]geminiPart, 0, len(references)*2)
+	for i, reference := range references {
+		inline, err := loadReferenceImage(reference, uploadDir)
+		if err != nil {
+			return nil, fmt.Errorf("参考图%d无效: %w", i+1, err)
+		}
+		parts = append(parts,
+			geminiPart{Text: fmt.Sprintf("参考图%d：", i+1)},
+			geminiPart{InlineData: &inline},
+		)
+	}
+	return parts, nil
+}
+
+func loadReferenceImage(reference, uploadDir string) (geminiInlineData, error) {
+	reference = strings.TrimSpace(reference)
+	var raw []byte
+	var err error
+
+	if strings.HasPrefix(reference, "data:") {
+		comma := strings.IndexByte(reference, ',')
+		if comma < 0 || !strings.Contains(reference[:comma], ";base64") {
+			return geminiInlineData{}, errors.New("仅支持 base64 图片 data URL")
+		}
+		raw, err = base64.StdEncoding.DecodeString(reference[comma+1:])
+		if err != nil {
+			return geminiInlineData{}, errors.New("base64 数据损坏")
+		}
+	} else if strings.HasPrefix(reference, "/uploads/") {
+		filename := strings.TrimPrefix(reference, "/uploads/")
+		if filename == "" || filepath.Base(filename) != filename {
+			return geminiInlineData{}, errors.New("图片路径不合法")
+		}
+		raw, err = os.ReadFile(filepath.Join(uploadDir, filename))
+		if err != nil {
+			return geminiInlineData{}, errors.New("图片文件不存在")
+		}
+	} else {
+		return geminiInlineData{}, errors.New("仅允许已上传图片或 data URL")
+	}
+
+	if len(raw) == 0 || len(raw) > maxReferenceImageSize {
+		return geminiInlineData{}, fmt.Errorf("图片大小必须在 1 字节到 %dMB 之间", maxReferenceImageSize>>20)
+	}
+	mimeType := http.DetectContentType(raw)
+	switch mimeType {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+	default:
+		return geminiInlineData{}, fmt.Errorf("不支持的图片格式 %s", mimeType)
+	}
+	return geminiInlineData{MIMEType: mimeType, Data: base64.StdEncoding.EncodeToString(raw)}, nil
 }
 
 func (h *Handler) writeImageGenerationError(c *gin.Context, err error) {

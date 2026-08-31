@@ -59,7 +59,7 @@ const allDisplayImages = ref<{ id: number; url: string; label: string; isRef: bo
 function rebuildDisplay() {
   const list: { id: number; url: string; label: string; isRef: boolean }[] = []
   for (const [, img] of connectedImages.value) {
-    list.push({ id: img.id, url: img.url, label: '参考', isRef: true })
+    list.push({ id: img.id, url: img.url, label: `参考${list.length + 1}`, isRef: true })
   }
   for (const img of images.value) {
     list.push({ id: img.id, url: img.url, label: img.name || '上传', isRef: false })
@@ -71,11 +71,12 @@ watch(() => props.nodeInputs, (inputs) => {
   if (!inputs) return
   const currentEdgeIds = new Set<string>()
   for (const inp of inputs) {
-    if ((inp.sourceNodeType === 'asset' || inp.sourceNodeType === 'image') && inp.data?.dataUrl) {
+    const imageUrl = inp.data?.dataUrl || inp.data?.url
+    if ((inp.sourceNodeType === 'asset' || inp.sourceNodeType === 'image') && imageUrl) {
       currentEdgeIds.add(inp.edgeId)
       if (!connectedImages.value.has(inp.edgeId)) {
         imageCounter++
-        connectedImages.value.set(inp.edgeId, { id: imageCounter, url: inp.data.dataUrl })
+        connectedImages.value.set(inp.edgeId, { id: imageCounter, url: imageUrl })
       }
     }
   }
@@ -258,7 +259,14 @@ async function generate() {
   if (!prompt.value) prompt.value = requestPrompt
   loading.value = true
   try {
-    const body = { profile: selectedModel.value, prompt: requestPrompt, n: selectedCount.value, aspect_ratio: selectedRatio.value, image_size: selectedResolution.value }
+    const body = {
+      profile: selectedModel.value,
+      prompt: requestPrompt,
+      n: selectedCount.value,
+      aspect_ratio: selectedRatio.value,
+      image_size: selectedResolution.value,
+      reference_images: allDisplayImages.value.map(image => image.url),
+    }
 
     // 先清空旧图，保存到节点让画布显示空白/加载状态
     generatedImages.value = []
