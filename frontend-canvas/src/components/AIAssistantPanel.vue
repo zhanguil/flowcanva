@@ -2,7 +2,10 @@
 import { nextTick, ref } from 'vue'
 import { chatWithAssistant } from '../api'
 
-defineProps<{ open: boolean }>()
+const props = defineProps<{
+  open: boolean
+  selectedImages: { nodeId: string; url: string; name: string }[]
+}>()
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -51,7 +54,7 @@ async function send() {
     const history = messages.value
       .filter(message => !message.error)
       .map(({ role, content }) => ({ role, content }))
-    const result = await chatWithAssistant(history)
+    const result = await chatWithAssistant(history, props.selectedImages.map(image => image.url))
     messages.value.push({ role: 'assistant', content: result.content })
   } catch (error: any) {
     messages.value.push({ role: 'assistant', content: error?.message || 'AI Assistant 调用失败', error: true })
@@ -84,6 +87,21 @@ async function send() {
         class="shrink-0 px-2.5 py-1 rounded-full border border-white/10 text-[11px] text-white/55 hover:text-white hover:bg-white/10"
         @click="useQuickAction(action[1])"
       >{{ action[0] }}</button>
+    </div>
+
+    <div class="px-3 py-2 border-b border-white/10">
+      <div class="flex items-center justify-between mb-1.5">
+        <span class="text-[11px] text-white/45">视觉上下文</span>
+        <span class="text-[10px]" :class="selectedImages.length ? 'text-cyan-300' : 'text-white/25'">
+          {{ selectedImages.length ? `已选 ${selectedImages.length} 张` : 'Shift / Ctrl 多选图片' }}
+        </span>
+      </div>
+      <div v-if="selectedImages.length" class="flex gap-1.5 overflow-x-auto">
+        <div v-for="(image, index) in selectedImages" :key="image.nodeId + image.url" class="relative shrink-0 w-12 h-12 rounded-lg overflow-hidden border border-cyan-400/30 bg-white/5">
+          <img :src="image.url" class="w-full h-full object-cover" />
+          <span class="absolute left-0 right-0 bottom-0 bg-black/65 text-[8px] text-center text-white/80">图{{ index + 1 }}</span>
+        </div>
+      </div>
     </div>
 
     <div ref="scrollRef" class="flex-1 overflow-y-auto p-4 space-y-4">

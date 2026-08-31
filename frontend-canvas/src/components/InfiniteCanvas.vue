@@ -31,6 +31,7 @@ const props = defineProps<{
   nodes: Node[]
   edges: Edge[]
   selectedNodeId: string | null
+  selectedNodeIds: string[]
   selectedNode: Node | null
   nodeZIndices: Record<string, number>
   assets: any[]
@@ -38,7 +39,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'select', id: string): void
+  (e: 'select', id: string, event?: PointerEvent): void
   (e: 'deselect'): void
   (e: 'move-node', id: string, x: number, y: number): void
   (e: 'resize-node', id: string, width: number, height: number, x: number, y: number): void
@@ -481,12 +482,13 @@ function onPanelSave(content: string) {
         :key="node.id"
         :node="node"
         :selected="node.id === selectedNodeId"
+        :multi-selected="selectedNodeIds.includes(node.id)"
         :zoom="viewport.zoom"
         :z-index="nodeZIndices[node.id] ?? 0"
         :connecting="connecting !== null"
         :snap-target="snapTarget"
         :assets="assets"
-        @select="emit('select', node.id)"
+        @select="emit('select', node.id, $event)"
         @drag-end="onNodeDragEnd(node.id, $event.x, $event.y)"
         @drag-move="onNodeDragMove(node.id, $event.x, $event.y)"
         @resize-end="onNodeResizeEnd(node.id, $event.width, $event.height, $event.x, $event.y)"

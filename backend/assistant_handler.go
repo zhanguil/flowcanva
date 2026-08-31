@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -18,7 +19,8 @@ const assistantSystemPrompt = `你是家具电商无限画布中的 AI Assistant
 遵守以下规则：只根据用户提供的文字与图片作答；看不到或无法确认的结构、尺寸、材质、性能必须明确标注“未知/待确认”，不得编造商品事实。生成提示词时，清楚写出需要保持不变的产品特征、参考图分工、场景、构图、镜头、光影、材质真实性和输出约束。回复使用用户当前语言，内容简洁、可直接执行。`
 
 type AssistantChatRequest struct {
-	Messages []AssistantMessage `json:"messages"`
+	Messages       []AssistantMessage `json:"messages"`
+	SelectedImages []string           `json:"selected_images"`
 }
 
 type AssistantMessage struct {
@@ -27,8 +29,23 @@ type AssistantMessage struct {
 }
 
 type assistantChatPayload struct {
-	Model    string             `json:"model"`
-	Messages []AssistantMessage `json:"messages"`
+	Model    string                `json:"model"`
+	Messages []assistantAPIMessage `json:"messages"`
+}
+
+type assistantAPIMessage struct {
+	Role    string `json:"role"`
+	Content any    `json:"content"`
+}
+
+type assistantContentPart struct {
+	Type     string             `json:"type"`
+	Text     string             `json:"text,omitempty"`
+	ImageURL *assistantImageURL `json:"image_url,omitempty"`
+}
+
+type assistantImageURL struct {
+	URL string `json:"url"`
 }
 
 func (h *Handler) ChatWithAssistant(c *gin.Context) {
@@ -52,9 +69,14 @@ func (h *Handler) ChatWithAssistant(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	apiMessages, err := buildAssistantAPIMessages(messages, req.SelectedImages, h.assetUploadDir())
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	payload := assistantChatPayload{
 		Model:    model,
-		Messages: append([]AssistantMessage{{Role: "system", Content: assistantSystemPrompt}}, messages...),
+		Messages: apiMessages,
 	}
 	responseBody, err := h.vectorEngine.PostJSON(c.Request.Context(), "/v1/chat/completions", payload)
 	if err != nil {
@@ -75,6 +97,39 @@ func (h *Handler) ChatWithAssistant(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"content": content, "model_profile": "assistant"})
+}
+
+func buildAssistantAPIMessages(messages []AssistantMessage, selectedImages []string, uploadDir string) ([]assistantAPIMessage, error) {
+	if len(selectedImages) > maxReferenceImages {
+		return nil, errors.New("Assistant 视觉上下文最多支持 8 张图片")
+	}
+	result := make([]assistantAPIMessage, 0, len(messages)+1)
+	result = append(result, assistantAPIMessage{Role: "system", Content: assistantSystemPrompt})
+	lastIndex := len(messages) - 1
+	for index, message := range messages {
+		if index != lastIndex || message.Role != "user" || len(selectedImages) == 0 {
+			result = append(result, assistantAPIMessage{Role: message.Role, Content: message.Content})
+			continue
+		}
+		parts := []assistantContentPart{{
+			Type: "text",
+			Text: message.Content + "\n\n以下图片按顺序对应图1、图2……，请严格按编号分析。",
+		}}
+		for imageIndex, reference := range selectedImages {
+			inline, err := loadReferenceImage(reference, uploadDir)
+			if err != nil {
+				return nil, fmt.Errorf("选中图片%d无效: %w", imageIndex+1, err)
+			}
+			parts = append(parts, assistantContentPart{
+				Type: "image_url",
+				ImageURL: &assistantImageURL{
+					URL: "data:" + inline.MIMEType + ";base64," + inline.Data,
+				},
+			})
+		}
+		result = append(result, assistantAPIMessage{Role: message.Role, Content: parts})
+	}
+	return result, nil
 }
 
 func normalizeAssistantMessages(input []AssistantMessage) ([]AssistantMessage, error) {

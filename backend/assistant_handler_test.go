@@ -1,11 +1,14 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -50,6 +53,37 @@ func TestAssistantUsesServerModelAndCredential(t *testing.T) {
 
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "这是产品分析结果") {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestAssistantBuildsMultimodalLastUserMessage(t *testing.T) {
+	raw := testPNG(t)
+	uploadDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(uploadDir, "product.png"), raw, 0644); err != nil {
+		t.Fatal(err)
+	}
+	messages := []AssistantMessage{{Role: "user", Content: "比较图1和图2"}}
+	apiMessages, err := buildAssistantAPIMessages(messages, []string{
+		"/uploads/product.png",
+		"data:image/png;base64," + base64.StdEncoding.EncodeToString(raw),
+	}, uploadDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(apiMessages) != 2 {
+		t.Fatalf("message count=%d", len(apiMessages))
+	}
+	parts, ok := apiMessages[1].Content.([]assistantContentPart)
+	if !ok || len(parts) != 3 || parts[0].Type != "text" {
+		t.Fatalf("unexpected multimodal content: %#v", apiMessages[1].Content)
+	}
+	for _, part := range parts[1:] {
+		if part.Type != "image_url" || part.ImageURL == nil || !strings.HasPrefix(part.ImageURL.URL, "data:image/png;base64,") {
+			t.Fatalf("unexpected image part: %#v", part)
+		}
+	}
+	if _, err := buildAssistantAPIMessages(messages, []string{"https://example.com/product.png"}, uploadDir); err == nil {
+		t.Fatal("external selected image URL should be rejected")
 	}
 }
 

@@ -5,6 +5,7 @@ import { fetchCanvas, createCanvas, updateCanvas, createNode, updateNode, delete
 export function useNodes() {
   const nodes = ref<Node[]>([])
   const selectedNodeId = ref<string | null>(null)
+  const selectedNodeIds = ref<string[]>([])
   const canvasId = ref<string | null>(null)
   const canvasName = ref('')
   const nodeZIndices = reactive<Record<string, number>>({})
@@ -73,6 +74,7 @@ export function useNodes() {
     nodes.value.push(n)
     nodeZIndices[n.id] = ++zCounter
     selectedNodeId.value = n.id
+    selectedNodeIds.value = [n.id]
     return n
   }
 
@@ -114,16 +116,35 @@ export function useNodes() {
     if (selectedNodeId.value === id) {
       selectedNodeId.value = null
     }
+    selectedNodeIds.value = selectedNodeIds.value.filter(selectedId => selectedId !== id)
+    if (!selectedNodeId.value && selectedNodeIds.value.length > 0) {
+      selectedNodeId.value = selectedNodeIds.value[selectedNodeIds.value.length - 1]
+    }
   }
 
-  function selectNode(id: string | null) {
-    selectedNodeId.value = id
-    if (id) nodeZIndices[id] = ++zCounter
+  function selectNode(id: string | null, additive = false) {
+    if (!id) {
+      selectedNodeId.value = null
+      selectedNodeIds.value = []
+      return
+    }
+    if (!additive) {
+      selectedNodeId.value = id
+      selectedNodeIds.value = [id]
+    } else if (selectedNodeIds.value.includes(id)) {
+      selectedNodeIds.value = selectedNodeIds.value.filter(selectedId => selectedId !== id)
+      selectedNodeId.value = selectedNodeIds.value[selectedNodeIds.value.length - 1] ?? null
+    } else {
+      selectedNodeIds.value = [...selectedNodeIds.value, id]
+      selectedNodeId.value = id
+    }
+    if (selectedNodeId.value) nodeZIndices[selectedNodeId.value] = ++zCounter
   }
 
   return {
     nodes,
     selectedNodeId,
+    selectedNodeIds,
     selectedNode,
     canvasId,
     canvasName,

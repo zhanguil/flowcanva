@@ -12,6 +12,7 @@ import type { Node } from '../types'
 const props = defineProps<{
   node: Node
   selected: boolean
+  multiSelected?: boolean
   zoom: number
   zIndex: number
   connecting: boolean
@@ -20,7 +21,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'select'): void
+  (e: 'select', event?: PointerEvent): void
   (e: 'drag-end', pos: { x: number; y: number }): void
   (e: 'drag-move', pos: { x: number; y: number }): void
   (e: 'resize-end', size: { width: number; height: number; x: number; y: number }): void
@@ -278,7 +279,8 @@ let dragMoveRaf = 0
 
 function onPointerDown(e: PointerEvent) {
   e.stopPropagation()
-  emit('select')
+  emit('select', e)
+  if (e.shiftKey || e.ctrlKey || e.metaKey) return
   dragging.value = true
   dragDx.value = 0
   dragDy.value = 0
@@ -587,6 +589,7 @@ onMounted(() => {
     class="canvas-node group flex flex-col"
     :class="{
       'opacity-60': connecting,
+      'ring-2 ring-cyan-400/70 ring-offset-2 ring-offset-transparent': multiSelected && !selected,
     }"
     ref="nodeEl"
     :data-node-id="node.id"
@@ -616,7 +619,7 @@ onMounted(() => {
       class="flex-1 min-h-0 rounded-xl overflow-hidden border border-white/20 bg-neutral-900 transition-all"
       :class="{
         'mx-2 mb-2': node.node_type !== 'image' && node.node_type !== 'asset' && node.node_type !== 'video',
-        'border-l-cyan-400 border-r-cyan-400 border-l-2 border-r-2': selected,
+        'border-l-cyan-400 border-r-cyan-400 border-l-2 border-r-2': selected || multiSelected,
       }"
     >
       <!-- 文本节点 -->

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import InfiniteCanvas from './components/InfiniteCanvas.vue'
 import LeftToolbar from './components/LeftToolbar.vue'
 import BottomToolbar from './components/BottomToolbar.vue'
@@ -49,6 +49,7 @@ const {
 const {
   nodes,
   selectedNodeId,
+  selectedNodeIds,
   selectedNode,
   canvasId,
   canvasName,
@@ -80,6 +81,35 @@ loadAssets()
 const showAssetManager = ref(false)
 const showPresetManager = ref(false)
 const showAssistant = ref(true)
+
+interface AssistantSelectedImage {
+  nodeId: string
+  url: string
+  name: string
+}
+
+const selectedAssistantImages = computed<AssistantSelectedImage[]>(() => {
+  const result: AssistantSelectedImage[] = []
+  const seen = new Set<string>()
+  for (const nodeId of selectedNodeIds.value) {
+    const node = nodes.value.find(item => item.id === nodeId)
+    if (!node || (node.node_type !== 'asset' && node.node_type !== 'image')) continue
+    try {
+      const data = JSON.parse(node.content || '{}')
+      const candidates = node.node_type === 'asset'
+        ? [{ url: data.url, name: data.name }]
+        : ((data.generated_images?.length ? data.generated_images : data.images) || [])
+      for (const candidate of candidates) {
+        const url = candidate?.url
+        if (!url || seen.has(url)) continue
+        seen.add(url)
+        result.push({ nodeId, url, name: candidate.name || `图${result.length + 1}` })
+        if (result.length >= 8) return result
+      }
+    } catch { /* ignore nodes without valid image content */ }
+  }
+  return result
+})
 
 const { loadNodeConfigs } = useNodeConfigs()
 
@@ -313,6 +343,10 @@ function handleAddNode(type: string) {
   addNode(type as any, wx, wy)
 }
 
+function handleCanvasSelect(id: string, event?: PointerEvent) {
+  selectNode(id, Boolean(event && (event.shiftKey || event.ctrlKey || event.metaKey)))
+}
+
 async function handleAddConnectedNode(type: string, wx: number, wy: number, sourceNodeId: string) {
   pushHistory()
   const node = await addNode(type as any, wx, wy)
@@ -375,7 +409,7 @@ async function handleGeneratedAssets(payload: { sourceNodeId: string; assets: Ge
       height: asset.height,
     }))
     await addEdge(payload.sourceNodeId, node.id)
-    selectedNodeId.value = payload.sourceNodeId
+    selectNode(payload.sourceNodeId)
   }
   await loadAssets()
 }
@@ -384,6 +418,7 @@ async function handleApplyAssistantPrompt(prompt: string) {
   const cleanPrompt = prompt.trim()
   if (!cleanPrompt) return
   const source = selectedNode.value
+  const referenceNodeIds = [...new Set(selectedAssistantImages.value.map(image => image.nodeId))]
   let centerX: number
   let centerY: number
   if (source) {
@@ -403,6 +438,9 @@ async function handleApplyAssistantPrompt(prompt: string) {
     images: [],
     generated_images: [],
   }))
+  for (const sourceNodeId of referenceNodeIds) {
+    await addEdge(sourceNodeId, node.id)
+  }
 }
 
 // 宫格分镜: 切图→生成资产节点网格排列
@@ -537,7 +575,7 @@ async function handleSavePanel(content: string) {
       const cx = node.x + node.width / 2 + dx * (i - 1)
       const cy = node.y + node.height / 2 + dy * (i - 1)
       const clone = await addNode(node.node_type as any, cx, cy)
-      if (!clone) { selectedNodeId.value = savedId; continue }
+      if (!clone) { selectNode(savedId); continue }
 
       updateNodeContent(clone.id, JSON.stringify(cloneData))
 
@@ -550,7 +588,7 @@ async function handleSavePanel(content: string) {
         }
       }
 
-      selectedNodeId.value = savedId
+      selectNode(savedId)
     }
   } else {
     updateNodeContent(selectedNodeId.value, content)
@@ -622,11 +660,12 @@ async function handleSavePanel(content: string) {
       :nodes="nodes"
       :edges="edges"
       :selected-node-id="selectedNodeId"
+      :selected-node-ids="selectedNodeIds"
       :selected-node="selectedNode"
       :node-z-indices="nodeZIndices"
       :assets="assets"
       :snap-to-grid="snapToGrid"
-      @select="selectNode"
+      @select="handleCanvasSelect"
       @move-node="handleMoveNode"
       @resize-node="handleResizeNode"
       @image-loaded="handleImageLoaded"
@@ -682,6 +721,7 @@ async function handleSavePanel(content: string) {
     <PresetManager v-if="showPresetManager" :canvas-id="canvasId ?? ''" @close="showPresetManager = false" />
     <AIAssistantPanel
       :open="showAssistant"
+      :selected-images="selectedAssistantImages"
       @close="showAssistant = false"
       @apply-prompt="handleApplyAssistantPrompt"
     />
