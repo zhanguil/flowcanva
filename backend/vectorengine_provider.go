@@ -103,7 +103,7 @@ func (p *VectorEngineProvider) do(ctx context.Context, endpoint, contentType str
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("调用 VectorEngine: %w", err)
+		return nil, fmt.Errorf("调用 VectorEngine: %s", p.redact(err.Error()))
 	}
 	defer resp.Body.Close()
 
@@ -112,10 +112,18 @@ func (p *VectorEngineProvider) do(ctx context.Context, endpoint, contentType str
 		return nil, fmt.Errorf("读取 VectorEngine 响应: %w", err)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		safeBody := strings.ReplaceAll(strings.TrimSpace(string(responseBody)), p.apiKey, "***")
+		safeBody := p.redact(strings.TrimSpace(string(responseBody)))
 		return nil, &VectorEngineAPIError{StatusCode: resp.StatusCode, Body: safeBody}
 	}
 	return responseBody, nil
+}
+
+func (p *VectorEngineProvider) redact(value string) string {
+	if p == nil || p.apiKey == "" {
+		return value
+	}
+	redacted := strings.ReplaceAll(value, p.apiKey, "***")
+	return strings.ReplaceAll(redacted, url.QueryEscape(p.apiKey), "***")
 }
 
 func (p *VectorEngineProvider) endpoint(apiPath string) string {

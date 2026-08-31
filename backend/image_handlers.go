@@ -40,7 +40,9 @@ func mapProtocol(p string) string {
 	}
 }
 
-func (h *Handler) GenerateImage(c *gin.Context) {
+// GenerateLegacyImage keeps the upstream proxy implementation available while
+// V0.1 routes image generation through the server-owned VectorEngine provider.
+func (h *Handler) GenerateLegacyImage(c *gin.Context) {
 	var req ImageGenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -74,7 +76,9 @@ func (h *Handler) GenerateImage(c *gin.Context) {
 			"messages": []map[string]string{{"role": "user", "content": req.Prompt}},
 			"n":        req.N,
 		}
-		if req.N <= 0 { bodyMap["n"] = 1 }
+		if req.N <= 0 {
+			bodyMap["n"] = 1
+		}
 		bodyBytes, _ = json.Marshal(bodyMap)
 	} else {
 		bodyMap := map[string]interface{}{
@@ -82,14 +86,27 @@ func (h *Handler) GenerateImage(c *gin.Context) {
 			"prompt": req.Prompt,
 			"n":      req.N,
 		}
-		if req.N <= 0 { bodyMap["n"] = 1 }
-		if req.Size != "" { bodyMap["size"] = req.Size
+		if req.N <= 0 {
+			bodyMap["n"] = 1
+		}
+		if req.Size != "" {
+			bodyMap["size"] = req.Size
 		} else if req.AspectRatio != "" {
-			if s := computeSize(req.AspectRatio, req.ImageSize); s != "" { bodyMap["size"] = s }
-		} else { bodyMap["size"] = "1024x1024" }
-		if req.Image != "" { bodyMap["image"] = req.Image }
-		if req.AspectRatio != "" { bodyMap["aspect_ratio"] = req.AspectRatio }
-		if req.ImageSize != "" { bodyMap["image_size"] = req.ImageSize }
+			if s := computeSize(req.AspectRatio, req.ImageSize); s != "" {
+				bodyMap["size"] = s
+			}
+		} else {
+			bodyMap["size"] = "1024x1024"
+		}
+		if req.Image != "" {
+			bodyMap["image"] = req.Image
+		}
+		if req.AspectRatio != "" {
+			bodyMap["aspect_ratio"] = req.AspectRatio
+		}
+		if req.ImageSize != "" {
+			bodyMap["image_size"] = req.ImageSize
+		}
 		bodyBytes, _ = json.Marshal(bodyMap)
 	}
 

@@ -43,6 +43,27 @@ func TestVectorEngineProviderPostJSON(t *testing.T) {
 	}
 }
 
+type failingRoundTripper struct{}
+
+func (failingRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	return nil, errors.New("connect failed: " + r.URL.String())
+}
+
+func TestVectorEngineProviderRedactsCredentialFromNetworkErrors(t *testing.T) {
+	client := &http.Client{Transport: failingRoundTripper{}}
+	provider := NewVectorEngineProvider("https://api.example.test", "server-secret", client)
+	_, err := provider.PostGeminiJSON(context.Background(), "/v1beta/models/test:generateContent", map[string]any{})
+	if err == nil {
+		t.Fatal("expected network error")
+	}
+	if strings.Contains(err.Error(), "server-secret") {
+		t.Fatalf("credential leaked in error: %s", err)
+	}
+	if !strings.Contains(err.Error(), "key=%2A%2A%2A") && !strings.Contains(err.Error(), "key=***") {
+		t.Fatalf("expected redacted URL, got: %s", err)
+	}
+}
+
 func TestVectorEngineProviderRequiresServerConfig(t *testing.T) {
 	provider := NewVectorEngineProvider("", "", nil)
 	_, err := provider.PostJSON(context.Background(), "/v1/images/generations", map[string]any{})

@@ -2,7 +2,6 @@
 import { ref, watch, nextTick } from 'vue'
 import type { Node } from '../../types'
 import MentionDropdown from '../MentionDropdown.vue'
-import { useNodeConfigs } from '../../composables/useNodeConfigs'
 
 const props = defineProps<{
   node: Node | null
@@ -15,8 +14,6 @@ const emit = defineEmits<{
   (e: 'remove-connected-edge', edgeId: string): void
 }>()
 
-const { getModels, getModelConfig } = useNodeConfigs()
-
 const prompt = ref('')
 const promptHtml = ref('')
 const loading = ref(false)
@@ -27,8 +24,8 @@ const connectedImages = ref<Map<string, { id: number; url: string }>>(new Map())
 let imageCounter = 0
 const previewImg = ref<{ id: number; url: string } | null>(null)
 
-const selectedModel = ref('dall-e-3')
-const models = ref<string[]>(['dall-e-3'])
+const selectedModel = ref('fast')
+const models = [{ value: 'fast', label: 'Nano Banana 2' }]
 const selectedRatio = ref('1:1')
 const selectedResolution = ref('1K')
 const selectedCount = ref(1)
@@ -36,7 +33,8 @@ const selectedPreset = ref('')
 
 const ratioOptions = ['自适应', '1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16', '5:4', '4:5', '21:9']
 const resolutionOptions = ['1K', '2K', '4K']
-const countOptions = [1, 2, 4]
+// 第四阶段先验证最小单图链路；批量数量将在结果落盘阶段接通。
+const countOptions = [1]
 
 const presets = ref<{ id: string; name: string; prompt: string; category: string; scope: string }[]>([])
 const presetCategories = ref<string[]>([])
@@ -82,11 +80,6 @@ watch(() => props.nodeInputs, (inputs) => {
 
 watch(() => props.node, (n) => {
   if (n) {
-    const typeModels = getModels(n.node_type)
-    models.value = typeModels.length > 0 ? typeModels : ['dall-e-3']
-    if (!models.value.includes(selectedModel.value)) {
-      selectedModel.value = models.value[0] || 'dall-e-3'
-    }
     try {
       const data = n.content ? JSON.parse(n.content) : null
       if (data) {
@@ -253,33 +246,8 @@ function insertMention(img: { id: any; name: string; src: string }) {
 async function generate() {
   if (!prompt.value || loading.value) return
   loading.value = true
-  const modelConfig = getModelConfig(props.node?.node_type || 'image', selectedModel.value)
   try {
-    const sizeBase = { '1K': 1024, '2K': 2048, '4K': 4096 }[selectedResolution.value] || 1024
-    const ratioMap: Record<string, [number, number]> = { '1:1': [1,1], '4:3': [4,3], '3:4': [3,4], '3:2': [3,2], '2:3': [2,3], '16:9': [16,9], '9:16': [9,16], '5:4': [5,4], '4:5': [4,5], '21:9': [21,9] }
-    const [rw, rh] = ratioMap[selectedRatio.value] || [1, 1]
-    let w = Math.round(sizeBase * rw / rh)
-    let h = sizeBase
-    if (rw < rh) { w = sizeBase; h = Math.round(sizeBase * rh / rw) }
-    // 确保最少像素（doubao 需要 ~3.7M）
-    while (w * h < 3686400) { w = Math.round(w * 1.3); h = Math.round(h * 1.3) }
-    const size = `${w}x${h}`
-    const body: Record<string, any> = { model: selectedModel.value, prompt: prompt.value, n: selectedCount.value, size, aspect_ratio: selectedRatio.value, image_size: selectedResolution.value }
-    if (modelConfig) {
-      if (modelConfig.channel) body.channel = modelConfig.channel
-      if (modelConfig.base_url) body.base_url = modelConfig.base_url
-      if (modelConfig.api_key) body.api_key = modelConfig.api_key
-      if (modelConfig.path) body.path = modelConfig.path
-      if (modelConfig.protocol) body.protocol = modelConfig.protocol
-    }
-    // 传入连线参考图
-    const refImages: string[] = []
-    for (const [, img] of connectedImages.value) refImages.push(img.url)
-    for (const img of images.value) refImages.push(img.url)
-    if (refImages.length > 0) {
-      body.image = refImages[0]
-      body.path = '/images/edits'
-    }
+    const body = { profile: selectedModel.value, prompt: prompt.value, n: selectedCount.value, aspect_ratio: selectedRatio.value, image_size: selectedResolution.value }
 
     // 先清空旧图，保存到节点让画布显示空白/加载状态
     generatedImages.value = []
@@ -359,7 +327,7 @@ watch(modalOpen, async (v) => {
           <span class="text-[10px] text-white/30 ml-1">模型</span>
           <div class="relative inline-flex items-center">
             <select v-model="selectedModel" class="text-xs bg-transparent border-0 text-white/70 hover:text-white h-6 py-0 pl-0 pr-6 w-[96px] outline-none appearance-none cursor-pointer [color-scheme:dark]">
-              <option v-for="m in models" :key="m" :value="m" class="bg-neutral-900 text-white">{{ m }}</option>
+              <option v-for="m in models" :key="m.value" :value="m.value" class="bg-neutral-900 text-white">{{ m.label }}</option>
             </select>
             <svg class="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-white/70" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </div>
@@ -424,7 +392,7 @@ watch(modalOpen, async (v) => {
         <div class="flex items-center justify-between gap-2 px-4 py-3 border-t border-white/10">
           <div class="flex items-center gap-1">
             <span class="text-[10px] text-white/30">模型</span>
-            <select v-model="selectedModel" class="appearance-none bg-white/5 border border-white/10 rounded text-xs text-white/80 pl-1.5 pr-4 py-1.5"><option v-for="m in models" :key="m" :value="m" class="bg-neutral-800">{{ m }}</option></select>
+            <select v-model="selectedModel" class="appearance-none bg-white/5 border border-white/10 rounded text-xs text-white/80 pl-1.5 pr-4 py-1.5"><option v-for="m in models" :key="m.value" :value="m.value" class="bg-neutral-800">{{ m.label }}</option></select>
             <span class="text-[10px] text-white/30">比例</span>
             <select v-model="selectedRatio" class="appearance-none bg-white/5 border border-white/10 rounded text-xs text-white/80 pl-1.5 pr-3 py-1.5"><option v-for="r in ratioOptions" :key="r" :value="r" class="bg-neutral-800">{{ r }}</option></select>
             <span class="text-[10px] text-white/30">像素</span>
