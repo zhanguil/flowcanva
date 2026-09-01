@@ -167,9 +167,14 @@ export async function* chatWithLLMStream(model: string, messages: { role: string
   }
 }
 
-export function chatWithAssistant(messages: { role: 'user' | 'assistant'; content: string }[], selectedImages: string[] = []) {
+export function chatWithAssistant(
+  messages: { role: 'user' | 'assistant'; content: string }[],
+  selectedImages: string[] = [],
+  canvasId = '',
+  selectedNodeIds: string[] = [],
+) {
   return req<{ content: string; model_profile: 'assistant' }>(`${BASE}/assistant/chat`, {
     method: 'POST',
-    body: JSON.stringify({ messages, selected_images: selectedImages }),
+    body: JSON.stringify({ messages, selected_images: selectedImages, canvas_id: canvasId, selected_node_ids: selectedNodeIds }),
   })
 }

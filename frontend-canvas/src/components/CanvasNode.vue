@@ -593,6 +593,7 @@ onMounted(() => {
     }"
     ref="nodeEl"
     :data-node-id="node.id"
+    :data-node-type="node.node_type"
     :style="nodeStyle"
     @pointerdown="onPointerDown"
     @pointermove="onPointerMove"

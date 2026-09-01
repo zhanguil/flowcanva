@@ -21,6 +21,9 @@ import (
 )
 
 type VectorImageRequest struct {
+	TaskID          string   `json:"task_id"`
+	CanvasID        string   `json:"canvas_id"`
+	NodeID          string   `json:"node_id"`
 	Profile         string   `json:"profile"`
 	Prompt          string   `json:"prompt"`
 	AspectRatio     string   `json:"aspect_ratio"`
@@ -89,12 +92,29 @@ func (h *Handler) GenerateImage(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "提示词不能为空"})
 		return
 	}
-	if h.vectorEngine == nil || !h.vectorEngine.Configured() {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrVectorEngineNotConfigured.Error()})
+	req.TaskID = ensureGenerationTaskID(req.TaskID)
+	resolved, err := h.resolveNodeInputs(req.CanvasID, req.NodeID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	req.ReferenceImages = mergeReferenceImages(resolved.Images, req.ReferenceImages)
+	if len(req.ReferenceImages) > maxReferenceImages {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("参考图片最多支持 %d 张", maxReferenceImages)})
 		return
 	}
 
 	profile := allowImageProfile(req.Profile)
+	model := h.imageModelForProfile(profile)
+	h.recordGenerationDebug(req, resolved, model)
+	if h.imageProvider != nil {
+		h.generateWithImageProvider(c, req, profile, model)
+		return
+	}
+	if h.vectorEngine == nil || !h.vectorEngine.Configured() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrVectorEngineNotConfigured.Error()})
+		return
+	}
 	if profile == "edit" {
 		h.generateGPTImage(c, req, profile)
 		return
@@ -109,17 +129,7 @@ func (h *Handler) generateGeminiImage(c *gin.Context, req VectorImageRequest, pr
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	model := strings.TrimSpace(h.imageModelFast)
-	if profile == "pro" {
-		model = strings.TrimSpace(h.imageModelPro)
-	}
-	if model == "" {
-		if profile == "pro" {
-			model = "gemini-3-pro-image-preview"
-		} else {
-			model = "gemini-3.1-flash-image-preview"
-		}
-	}
+	model := h.imageModelForProfile(profile)
 	apiPath := "/v1beta/models/" + url.PathEscape(model) + ":generateContent"
 
 	generated := make([]geminiInlineData, 0, count)
@@ -145,7 +155,57 @@ func (h *Handler) generateGeminiImage(c *gin.Context, req VectorImageRequest, pr
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成图片保存失败"})
 		return
 	}
+	if err := h.persistNodeGeneratedOutputs(req.CanvasID, req.NodeID, assets); err != nil {
+		h.log.Error("persist generation node output failed", "task_id", req.TaskID, "node_id", req.NodeID, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "生图节点输出保存失败"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"data": assets, "model_profile": profile})
+}
+
+func (h *Handler) generateWithImageProvider(c *gin.Context, req VectorImageRequest, profile, model string) {
+	generated, err := h.imageProvider.Generate(c.Request.Context(), ImageProviderRequest{
+		TaskID: req.TaskID, CanvasID: req.CanvasID, NodeID: req.NodeID,
+		Prompt: req.Prompt, Model: model, Profile: profile,
+		AspectRatio: req.AspectRatio, Resolution: req.ImageSize,
+		N: req.N, ReferenceImages: append([]string(nil), req.ReferenceImages...),
+	})
+	if err != nil {
+		h.log.Error("mock image generation failed", "task_id", req.TaskID, "node_id", req.NodeID, "error", err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Mock 图片生成失败"})
+		return
+	}
+	assets, err := h.persistGeneratedImages(generated, profile)
+	if err != nil {
+		h.log.Error("persist mock generated images failed", "task_id", req.TaskID, "node_id", req.NodeID, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成图片保存失败"})
+		return
+	}
+	if err := h.persistNodeGeneratedOutputs(req.CanvasID, req.NodeID, assets); err != nil {
+		h.log.Error("persist mock generation node output failed", "task_id", req.TaskID, "node_id", req.NodeID, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "生图节点输出保存失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": assets, "model_profile": profile, "task_id": req.TaskID})
+}
+
+func (h *Handler) imageModelForProfile(profile string) string {
+	model := strings.TrimSpace(h.imageModelFast)
+	if profile == "pro" {
+		model = strings.TrimSpace(h.imageModelPro)
+	} else if profile == "edit" {
+		model = strings.TrimSpace(h.imageModelEdit)
+	}
+	if model != "" {
+		return model
+	}
+	if profile == "pro" {
+		return "gemini-3-pro-image-preview"
+	}
+	if profile == "edit" {
+		return "gpt-image-2"
+	}
+	return "gemini-3.1-flash-image-preview"
 }
 
 func buildGeminiImagePayload(req VectorImageRequest, uploadDir string) (geminiGenerateRequest, error) {

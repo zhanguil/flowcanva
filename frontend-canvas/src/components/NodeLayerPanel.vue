@@ -63,10 +63,11 @@ function onClick(nodeId: string) {
 
 <template>
   <div
-    class="fixed top-12 right-2 bottom-16 w-48 bg-base-200/90 backdrop-blur rounded-xl border border-base-300 shadow-lg z-[9999] flex flex-col overflow-hidden select-none"
+    data-testid="layers-panel"
+    class="flex h-full min-h-0 w-full flex-col overflow-hidden bg-neutral-950/95 text-white select-none"
     @pointerdown.stop @click.stop @wheel.stop @dblclick.stop
   >
-    <div class="px-3 py-2 text-[10px] font-extrabold text-base-content/40 uppercase tracking-widest border-b border-base-300 shrink-0">
+    <div class="px-3 py-2 text-[10px] font-extrabold text-white/40 uppercase tracking-widest border-b border-white/10 shrink-0">
       图层 {{ nodes.length }}
     </div>
     <div class="flex-1 overflow-y-auto py-1">
@@ -76,8 +77,8 @@ function onClick(nodeId: string) {
         </div>
         <div
           v-for="n in items" :key="n.id"
-          class="flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer transition-colors hover:bg-base-300/50"
-          :class="n.id === selectedNodeId ? 'bg-primary/10 text-primary font-bold' : 'text-base-content/60'"
+          class="flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer transition-colors hover:bg-white/5"
+          :class="n.id === selectedNodeId ? 'bg-blue-500/10 text-blue-300 font-bold' : 'text-white/60'"
           @click.stop="onClick(n.id)"
         >
           <span class="w-4 h-4 rounded flex items-center justify-center text-[9px] shrink-0 bg-base-300/50 leading-none">{{ NODE_ICONS[n.node_type] || '?' }}</span>

@@ -19,6 +19,7 @@ const emit = defineEmits<{
     <button
       v-for="nt in nodeTypes"
       :key="nt.type"
+      :data-testid="`add-node-${nt.type}`"
       class="btn btn-ghost btn-sm h-auto w-14 flex-col gap-0.5 py-2 px-0 min-h-0 "
       @click="emit('add-node', nt.type)"
     >

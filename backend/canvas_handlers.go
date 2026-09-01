@@ -11,14 +11,17 @@ import (
 )
 
 type Handler struct {
-	db             *sql.DB
-	log            *slog.Logger
-	vectorEngine   *VectorEngineProvider
-	assistantModel string
-	imageModelFast string
-	imageModelPro  string
-	imageModelEdit string
-	uploadDir      string
+	db              *sql.DB
+	log             *slog.Logger
+	vectorEngine    *VectorEngineProvider
+	assistantModel  string
+	imageModelFast  string
+	imageModelPro   string
+	imageModelEdit  string
+	imageProvider   ImageProvider
+	devMode         bool
+	generationDebug *GenerationDebugStore
+	uploadDir       string
 }
 
 // ─── Canvas handlers ────────────────────────────────────────────────

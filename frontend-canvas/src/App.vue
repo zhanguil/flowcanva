@@ -4,10 +4,9 @@ import InfiniteCanvas from './components/InfiniteCanvas.vue'
 import LeftToolbar from './components/LeftToolbar.vue'
 import BottomToolbar from './components/BottomToolbar.vue'
 import Minimap from './components/Minimap.vue'
-import NodeLayerPanel from './components/NodeLayerPanel.vue'
 import AssetManager from './components/AssetManager.vue'
 import PresetManager from './components/PresetManager.vue'
-import AIAssistantPanel from './components/AIAssistantPanel.vue'
+import RightDock, { type RightDockTab } from './components/RightDock.vue'
 import { useCanvas } from './composables/useCanvas'
 import { useNodes } from './composables/useNodes'
 import { useEdges } from './composables/useEdges'
@@ -18,6 +17,7 @@ import { uploadAsset } from './api'
 import type { Node as CanvasNode } from './types'
 
 const consoleURL = import.meta.env.DEV ? '/' : '/'
+const isDev = import.meta.env.DEV
 
 const NODE_LABELS: Record<string, string> = {
   text: '文本',
@@ -80,7 +80,7 @@ loadAssets()
 
 const showAssetManager = ref(false)
 const showPresetManager = ref(false)
-const showAssistant = ref(true)
+const dockTab = ref<RightDockTab | null>('assistant')
 
 interface AssistantSelectedImage {
   nodeId: string
@@ -146,6 +146,16 @@ function confirmEditName() {
 
 function cancelEditName() {
   isEditingName.value = false
+}
+
+function openAssetManager() {
+  dockTab.value = null
+  showAssetManager.value = true
+}
+
+function openPresetManager() {
+  dockTab.value = null
+  showPresetManager.value = true
 }
 
 // Keyboard shortcuts
@@ -443,6 +453,16 @@ async function handleApplyAssistantPrompt(prompt: string) {
   }
 }
 
+async function handleLoadTestCanvas() {
+  const response = await fetch('/api/dev/test-canvas', { method: 'POST' })
+  if (!response.ok) return
+  const data = await response.json()
+  if (data.canvas_id) {
+    window.location.hash = `canvas=${encodeURIComponent(data.canvas_id)}`
+    window.location.reload()
+  }
+}
+
 // 宫格分镜: 切图→生成资产节点网格排列
 async function handleGridSplit(data: { cols: number; rows: number; urls: string[] }) {
   const sid = selectedNodeId.value
@@ -636,13 +656,20 @@ async function handleSavePanel(content: string) {
       </div>
       <div class="flex items-center gap-2">
         <button
+          data-testid="open-assistant"
           class="btn btn-sm gap-1.5 text-xs"
-          :class="showAssistant ? 'btn-primary' : 'btn-ghost'"
-          @click="showAssistant = !showAssistant"
+          :class="dockTab === 'assistant' ? 'btn-primary' : 'btn-ghost'"
+          @click="dockTab = dockTab === 'assistant' ? null : 'assistant'"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8L12 3z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z"/></svg>
           AI Assistant
         </button>
+        <button
+          data-testid="open-project"
+          class="btn btn-sm gap-1.5 text-xs"
+          :class="dockTab === 'project' ? 'btn-primary' : 'btn-ghost'"
+          @click="dockTab = dockTab === 'project' ? null : 'project'"
+        >项目</button>
         <a
           :href="consoleURL"
           class="btn btn-ghost btn-sm gap-1.5 text-xs font-semibold"
@@ -689,8 +716,8 @@ async function handleSavePanel(content: string) {
       @add-node="handleAddNode"
       @undo="undo"
       @redo="redo"
-      @open-asset-manager="showAssetManager = true"
-      @open-preset-manager="showPresetManager = true"
+      @open-asset-manager="openAssetManager"
+      @open-preset-manager="openPresetManager"
     />
 
     <BottomToolbar
@@ -711,19 +738,23 @@ async function handleSavePanel(content: string) {
       @navigate="handleNavigate"
     />
 
-    <NodeLayerPanel
-      :nodes="nodes"
-      :selected-node-id="selectedNodeId"
-      @select="handleLayerSelect"
-    />
-
     <AssetManager v-if="showAssetManager" @close="showAssetManager = false" />
     <PresetManager v-if="showPresetManager" :canvas-id="canvasId ?? ''" @close="showPresetManager = false" />
-    <AIAssistantPanel
-      :open="showAssistant"
+    <RightDock
+      :active-tab="dockTab"
+      :canvas-id="canvasId ?? ''"
+      :canvas-name="canvasName"
+      :nodes="nodes"
+      :edge-count="edges.length"
+      :asset-count="assets.length"
+      :selected-node-id="selectedNodeId"
       :selected-images="selectedAssistantImages"
-      @close="showAssistant = false"
+      :dev-mode="isDev"
+      @update:active-tab="dockTab = $event"
+      @select-node="handleLayerSelect"
       @apply-prompt="handleApplyAssistantPrompt"
+      @open-assets="openAssetManager"
+      @load-test-canvas="handleLoadTestCanvas"
     />
   </div>
 </template>

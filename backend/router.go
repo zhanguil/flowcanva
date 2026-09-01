@@ -50,6 +50,11 @@ func setupRouter(h *Handler, cfg Config) *gin.Engine {
 		api.POST("/comfyui/execute", h.ExecuteComfyUI)
 		api.GET("/comfyui/result/:prompt_id", h.GetComfyUIResult)
 		api.GET("/comfyui/proxy-view", h.ProxyComfyUIImage)
+
+		if cfg.DevMode {
+			api.GET("/dev/generation-debug", h.GetGenerationDebug)
+			api.POST("/dev/test-canvas", h.CreateDevTestCanvas)
+		}
 	}
 
 	admin := r.Group("/api/admin")

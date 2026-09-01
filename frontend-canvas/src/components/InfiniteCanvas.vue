@@ -12,6 +12,7 @@ import WorkflowNodePanel from './panels/WorkflowNodePanel.vue'
 import AssetNodePanel from './panels/AssetNodePanel.vue'
 import ScriptEditorModal from './ScriptEditorModal.vue'
 import DirectorEditorModal from './DirectorEditorModal.vue'
+import { resolveNodeInputs } from '../utils/nodeInputResolver'
 
 const panelMap: Record<string, any> = {
   text: TextNodePanel,
@@ -108,39 +109,8 @@ const panelStyle = computed(() => {
   }
 })
 
-// 计算每个节点的连线输入（上游节点的数据流到下游）
-interface InputData {
-  edgeId: string
-  sourceNodeId: string
-  sourceNodeType: string
-  data: any
-}
-const nodeInputs = computed(() => {
-  const map: Record<string, InputData[]> = {}
-  for (const edge of props.edges) {
-    const source = getNode(edge.source_node_id)
-    if (!source) continue
-    let data: any = source.content || null
-    if (source.node_type === 'asset' && source.content) {
-      try { data = JSON.parse(source.content) } catch { /* keep raw */ }
-    }
-    if (source.node_type === 'image' && source.content) {
-      try {
-        const parsed = JSON.parse(source.content)
-        const gens = parsed.generated_images || []
-        data = gens.length > 0 ? { dataUrl: gens[0].url } : null
-      } catch { /* keep raw */ }
-    }
-    if (!map[edge.target_node_id]) map[edge.target_node_id] = []
-    map[edge.target_node_id].push({
-      edgeId: edge.id,
-      sourceNodeId: source.id,
-      sourceNodeType: source.node_type,
-      data,
-    })
-  }
-  return map
-})
+// Edge 同时是可视连线与数据依赖；解析逻辑保持为无状态纯函数，避免缓存旧输出。
+const nodeInputs = computed(() => resolveNodeInputs(props.nodes, props.edges))
 
 // 节点拖拽中的实时偏移（用于边跟随移动）
 const dragOffsets = reactive<Record<string, { x: number; y: number }>>({})

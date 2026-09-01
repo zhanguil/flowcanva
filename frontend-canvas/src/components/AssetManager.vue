@@ -132,7 +132,7 @@ onUnmounted(() => {
 
 <template>
   <Teleport to="body">
-    <div class="fixed inset-0 z-[9990] flex items-center justify-center" @click.self="emit('close')">
+    <div data-testid="asset-manager" class="fixed inset-0 z-[9990] flex items-center justify-center" @click.self="emit('close')">
       <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" />
       <div class="relative w-[960px] max-w-[95vw] max-h-[90vh] bg-neutral-900/95 backdrop-blur rounded-2xl border border-white/20 shadow-sm flex flex-col">
         <!-- 头部 -->

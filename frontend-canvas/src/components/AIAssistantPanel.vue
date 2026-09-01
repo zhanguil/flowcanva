@@ -4,6 +4,7 @@ import { chatWithAssistant } from '../api'
 
 const props = defineProps<{
   open: boolean
+  canvasId: string
   selectedImages: { nodeId: string; url: string; name: string }[]
 }>()
 
@@ -54,7 +55,12 @@ async function send() {
     const history = messages.value
       .filter(message => !message.error)
       .map(({ role, content }) => ({ role, content }))
-    const result = await chatWithAssistant(history, props.selectedImages.map(image => image.url))
+    const result = await chatWithAssistant(
+      history,
+      [],
+      props.canvasId,
+      [...new Set(props.selectedImages.map(image => image.nodeId))],
+    )
     messages.value.push({ role: 'assistant', content: result.content })
   } catch (error: any) {
     messages.value.push({ role: 'assistant', content: error?.message || 'AI Assistant 调用失败', error: true })
@@ -68,7 +74,8 @@ async function send() {
 <template>
   <aside
     v-show="open"
-    class="fixed right-0 top-12 bottom-0 z-40 w-[390px] border-l border-white/10 bg-neutral-950/95 text-white shadow-2xl backdrop-blur-xl flex flex-col"
+    data-testid="assistant-panel"
+    class="flex h-full min-h-0 w-full flex-col bg-neutral-950/95 text-white"
     @pointerdown.stop
     @wheel.stop
   >
@@ -77,7 +84,7 @@ async function send() {
         <div class="text-sm font-semibold">AI Assistant</div>
         <div class="text-[11px] text-white/40">GPT-5.6 Sol · 电商视觉</div>
       </div>
-      <button class="w-8 h-8 rounded-lg text-white/50 hover:text-white hover:bg-white/10" title="关闭 AI Assistant" @click="emit('close')">×</button>
+      <button class="w-8 h-8 rounded-lg text-white/50 hover:text-white hover:bg-white/10" title="关闭 AI Assistant" aria-label="关闭 AI Assistant" @click="emit('close')">×</button>
     </div>
 
     <div class="px-3 py-2 flex gap-1.5 overflow-x-auto border-b border-white/10">

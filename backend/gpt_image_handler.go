@@ -36,10 +36,7 @@ func (h *Handler) generateGPTImage(c *gin.Context, req VectorImageRequest, profi
 		return
 	}
 
-	model := strings.TrimSpace(h.imageModelEdit)
-	if model == "" {
-		model = "gpt-image-2"
-	}
+	model := h.imageModelForProfile(profile)
 	count := allowImageCount(req.N)
 	size := gptImageSize(req.AspectRatio, req.ImageSize)
 
@@ -87,6 +84,11 @@ func (h *Handler) generateGPTImage(c *gin.Context, req VectorImageRequest, profi
 	if err != nil {
 		h.log.Error("persist generated images failed", "model_profile", profile, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成图片保存失败"})
+		return
+	}
+	if err := h.persistNodeGeneratedOutputs(req.CanvasID, req.NodeID, assets); err != nil {
+		h.log.Error("persist generation node output failed", "task_id", req.TaskID, "node_id", req.NodeID, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "生图节点输出保存失败"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": assets, "model_profile": profile})

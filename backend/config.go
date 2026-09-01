@@ -23,6 +23,7 @@ type Config struct {
 	ImageModelFast      string
 	ImageModelPro       string
 	ImageModelEdit      string
+	ImageProvider       string
 }
 
 func loadConfig() Config {
@@ -47,6 +48,7 @@ func loadConfig() Config {
 		ImageModelFast:      envOrDefault("IMAGE_MODEL_FAST", "gemini-3.1-flash-image-preview"),
 		ImageModelPro:       envOrDefault("IMAGE_MODEL_PRO", "gemini-3-pro-image-preview"),
 		ImageModelEdit:      envOrDefault("IMAGE_MODEL_EDIT", "gpt-image-2"),
+		ImageProvider:       envOrDefault("IMAGE_PROVIDER", "vectorengine"),
 	}
 }
 

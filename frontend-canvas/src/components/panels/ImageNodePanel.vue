@@ -2,11 +2,12 @@
 import { ref, watch, nextTick } from 'vue'
 import type { Node } from '../../types'
 import MentionDropdown from '../MentionDropdown.vue'
+import type { ResolvedNodeInput } from '../../utils/nodeInputResolver'
 
 const props = defineProps<{
   node: Node | null
   panelStyle: Record<string, string>
-  nodeInputs?: { edgeId: string; sourceNodeId: string; sourceNodeType: string; data: any }[]
+  nodeInputs?: ResolvedNodeInput[]
 }>()
 
 const emit = defineEmits<{
@@ -29,7 +30,7 @@ const promptHtml = ref('')
 const loading = ref(false)
 const modalOpen = ref(false)
 const images = ref<{ id: number; url: string; name?: string }[]>([])
-const generatedImages = ref<{ id: number; url: string }[]>([])
+const generatedImages = ref<{ id: number | string; asset_id?: string; name?: string; url: string; size?: number; width?: number; height?: number }[]>([])
 const connectedImages = ref<Map<string, { id: number; url: string }>>(new Map())
 let imageCounter = 0
 const previewImg = ref<{ id: number; url: string } | null>(null)
@@ -75,12 +76,21 @@ watch(() => props.nodeInputs, (inputs) => {
   if (!inputs) return
   const currentEdgeIds = new Set<string>()
   for (const inp of inputs) {
-    const imageUrl = inp.data?.dataUrl || inp.data?.url
-    if ((inp.sourceNodeType === 'asset' || inp.sourceNodeType === 'image') && imageUrl) {
-      currentEdgeIds.add(inp.edgeId)
-      if (!connectedImages.value.has(inp.edgeId)) {
-        imageCounter++
-        connectedImages.value.set(inp.edgeId, { id: imageCounter, url: imageUrl })
+    const sourceImages = inp.images.length > 0
+      ? inp.images
+      : [{ url: inp.data?.dataUrl || inp.data?.url || '' }]
+    for (let index = 0; index < sourceImages.length; index++) {
+      const imageUrl = sourceImages[index].url
+      if ((inp.sourceNodeType === 'asset' || inp.sourceNodeType === 'image') && imageUrl) {
+        const inputKey = `${inp.edgeId}:${index}`
+        currentEdgeIds.add(inputKey)
+        const existing = connectedImages.value.get(inputKey)
+        if (!existing) {
+          imageCounter++
+          connectedImages.value.set(inputKey, { id: imageCounter, url: imageUrl })
+        } else if (existing.url !== imageUrl) {
+          connectedImages.value.set(inputKey, { ...existing, url: imageUrl })
+        }
       }
     }
   }
@@ -264,12 +274,16 @@ async function generate() {
   loading.value = true
   try {
     const body = {
+      task_id: `task_${crypto.randomUUID()}`,
+      canvas_id: props.node?.canvas_id,
+      node_id: props.node?.id,
       profile: selectedModel.value,
       prompt: requestPrompt,
       n: selectedCount.value,
       aspect_ratio: selectedRatio.value,
       image_size: selectedResolution.value,
-      reference_images: allDisplayImages.value.map(image => image.url),
+      // Incoming edge references are resolved authoritatively by the backend.
+      reference_images: images.value.map(image => image.url),
     }
 
     // 先清空旧图，保存到节点让画布显示空白/加载状态
@@ -283,7 +297,18 @@ async function generate() {
     }
     const data = await res.json()
     if (data.data && Array.isArray(data.data)) {
-      for (let i = 0; i < data.data.length; i++) generatedImages.value.push({ id: Date.now() + i, url: data.data[i].url || data.data[i].b64_json || '' })
+      for (let i = 0; i < data.data.length; i++) {
+        const asset = data.data[i]
+        generatedImages.value.push({
+          id: asset.id || Date.now() + i,
+          asset_id: asset.id,
+          name: asset.filename,
+          url: asset.url || asset.b64_json || '',
+          size: asset.size,
+          width: asset.width,
+          height: asset.height,
+        })
+      }
     }
     emit('save', buildContent({ images: images.value, generated_images: generatedImages.value }))
     if (props.node?.id && Array.isArray(data.data) && data.data.length > 0) {
@@ -318,7 +343,7 @@ watch(modalOpen, async (v) => {
 </script>
 
 <template>
-  <div v-if="node" :style="panelStyle" class="pointer-events-auto" @pointerdown.stop>
+  <div v-if="node" data-testid="image-node-panel" :style="panelStyle" class="pointer-events-auto" @pointerdown.stop>
     <div class="bg-neutral-900/95 backdrop-blur rounded-2xl border border-white/20 p-3 relative">
       <button class="btn btn-xs btn-square absolute top-2 right-2 bg-white/10 border border-white/30 text-white hover:bg-white/20 z-10" title="放大编辑" @click="modalOpen = true">
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -346,7 +371,7 @@ watch(modalOpen, async (v) => {
         <MentionDropdown :connected-images="allDisplayImages.map(i => ({ id: i.id, name: i.label, dataUrl: i.url }))" :filter="mentionFilter" @insert="insertMention" />
       </div>
 
-      <div ref="editableRef" contenteditable="true" class="w-full bg-transparent outline-0 text-white text-sm px-1 min-h-[60px] max-h-[100px] overflow-y-auto whitespace-pre-wrap break-words empty:before:content-['输入图片提示词...'] empty:before:text-white/30" @input="onInput" />
+      <div ref="editableRef" data-testid="image-prompt" contenteditable="true" class="w-full bg-transparent outline-0 text-white text-sm px-1 min-h-[60px] max-h-[100px] overflow-y-auto whitespace-pre-wrap break-words empty:before:content-['输入图片提示词...'] empty:before:text-white/30" @input="onInput" />
 
       <div class="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-white/10">
         <div class="flex items-center gap-1">
@@ -389,7 +414,7 @@ watch(modalOpen, async (v) => {
             <svg class="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-white/70" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </div>
         </div>
-        <button class="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-neutral-900 hover:bg-neutral-200 transition-colors disabled:opacity-50" title="生成图片" aria-label="生成图片" :disabled="loading" @pointerdown.stop.prevent="generate" @click.stop.prevent="generate">
+        <button data-testid="generate-image" class="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-neutral-900 hover:bg-neutral-200 transition-colors disabled:opacity-50" title="生成图片" aria-label="生成图片" :disabled="loading" @pointerdown.stop.prevent="generate" @click.stop.prevent="generate">
           <svg v-if="!loading" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
           <span v-else class="loading loading-spinner loading-xs" />
         </button>

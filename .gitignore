@@ -22,4 +22,6 @@ backend/admin-dist/*
 backend/canvas-dist/*
 !backend/canvas-dist/keep.txt
 .browser-profile/
+frontend-canvas/test-results/
+frontend-canvas/playwright-report/
 .kilo/

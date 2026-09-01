@@ -19,8 +19,10 @@ const assistantSystemPrompt = `你是家具电商无限画布中的 AI Assistant
 遵守以下规则：只根据用户提供的文字与图片作答；看不到或无法确认的结构、尺寸、材质、性能必须明确标注“未知/待确认”，不得编造商品事实。生成提示词时，清楚写出需要保持不变的产品特征、参考图分工、场景、构图、镜头、光影、材质真实性和输出约束。回复使用用户当前语言，内容简洁、可直接执行。`
 
 type AssistantChatRequest struct {
-	Messages       []AssistantMessage `json:"messages"`
-	SelectedImages []string           `json:"selected_images"`
+	Messages        []AssistantMessage `json:"messages"`
+	SelectedImages  []string           `json:"selected_images"`
+	CanvasID        string             `json:"canvas_id"`
+	SelectedNodeIDs []string           `json:"selected_node_ids"`
 }
 
 type AssistantMessage struct {
@@ -69,7 +71,13 @@ func (h *Handler) ChatWithAssistant(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	apiMessages, err := buildAssistantAPIMessages(messages, req.SelectedImages, h.assetUploadDir())
+	resolvedImages, err := h.resolveSelectedNodeImages(req.CanvasID, req.SelectedNodeIDs)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	selectedImages := mergeReferenceImages(resolvedImages, req.SelectedImages)
+	apiMessages, err := buildAssistantAPIMessages(messages, selectedImages, h.assetUploadDir())
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

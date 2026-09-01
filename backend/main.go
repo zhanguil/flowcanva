@@ -26,13 +26,21 @@ func main() {
 	defer db.Close()
 
 	vectorEngine := NewVectorEngineProvider(cfg.VectorEngineBaseURL, cfg.VectorEngineAPIKey, nil)
+	var imageProvider ImageProvider
+	if cfg.DevMode && cfg.ImageProvider == "mock" {
+		imageProvider = NewMockImageProvider()
+		logger.Info("mock image provider enabled")
+	}
 	h := &Handler{
 		db: db, log: logger, vectorEngine: vectorEngine,
-		assistantModel: cfg.AssistantModel,
-		imageModelFast: cfg.ImageModelFast,
-		imageModelPro:  cfg.ImageModelPro,
-		imageModelEdit: cfg.ImageModelEdit,
-		uploadDir:      cfg.UploadDir,
+		assistantModel:  cfg.AssistantModel,
+		imageModelFast:  cfg.ImageModelFast,
+		imageModelPro:   cfg.ImageModelPro,
+		imageModelEdit:  cfg.ImageModelEdit,
+		imageProvider:   imageProvider,
+		devMode:         cfg.DevMode,
+		generationDebug: &GenerationDebugStore{},
+		uploadDir:       cfg.UploadDir,
 	}
 	r := setupRouter(h, cfg)
 
