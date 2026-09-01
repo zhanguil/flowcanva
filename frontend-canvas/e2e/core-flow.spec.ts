@@ -150,6 +150,20 @@ test('image output handle exposes a clear continue-generation action and creates
   const continueButton = page.getByTestId('connect-create-image')
   await expect(continueButton).toBeVisible()
   await expect(continueButton).toHaveText('继续生图')
+
+  const nativeMenuPrevented = await page.getByTestId('canvas-viewport').evaluate(element => {
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 500, clientY: 700 })
+    element.dispatchEvent(event)
+    return event.defaultPrevented
+  })
+  expect(nativeMenuPrevented).toBeTruthy()
+  await expect(page.getByTestId('connect-create-menu')).toHaveCount(0)
+
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(420, 760, { steps: 10 })
+  await page.mouse.up()
+  await expect(continueButton).toBeVisible()
   const nodeResponse = page.waitForResponse(response =>
     response.url().includes(`/api/canvases/${testCanvas.canvas_id}/nodes`) && response.request().method() === 'POST',
   )

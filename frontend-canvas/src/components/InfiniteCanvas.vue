@@ -394,8 +394,10 @@ function onPanelSave(content: string) {
 
 <template>
   <div
+    data-testid="canvas-viewport"
     class="canvas-viewport"
     :style="{ touchAction: 'none', width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative', cursor: connecting ? 'crosshair' : 'grab', backgroundColor: '#0d0e14' }"
+    @contextmenu.prevent="closeConnectMenu"
   >
     <!-- 网格层 -->
     <div :style="gridStyle" />
@@ -492,7 +494,7 @@ function onPanelSave(content: string) {
 
     <!-- 拉线空白处弹出创建节点菜单 -->
     <Teleport to="body">
-      <div v-if="connectMenu" class="fixed z-[9999]" :style="{ left: connectMenu.x + 'px', top: connectMenu.y + 'px', transform: 'translate(-50%, 12px)' }" @pointerdown.stop>
+      <div v-if="connectMenu" data-testid="connect-create-menu" class="fixed z-[9999]" :style="{ left: connectMenu.x + 'px', top: connectMenu.y + 'px', transform: 'translate(-50%, 12px)' }" @pointerdown.stop>
         <div class="flex w-[196px] flex-col gap-1 rounded-2xl p-2 backdrop-blur-[32px] border border-white/15 bg-neutral-900/95 shadow-xl">
           <div class="flex h-7 items-center px-2 text-xs text-white/50">基于当前节点继续</div>
           <button
