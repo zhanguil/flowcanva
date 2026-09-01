@@ -7,7 +7,7 @@ $canvasUrl = 'http://127.0.0.1:6789/canvas'
 
 function Test-FlowCanvaServer {
     try {
-        $response = Invoke-WebRequest -Uri 'http://127.0.0.1:6789/api/canvases?page_size=1' -TimeoutSec 2
+        $response = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:6789/api/canvases?page_size=1' -TimeoutSec 2
         return $response.StatusCode -eq 200
     }
     catch {
@@ -17,7 +17,7 @@ function Test-FlowCanvaServer {
 
 if (-not (Test-FlowCanvaServer)) {
     if (-not (Test-Path -LiteralPath $serverExe)) {
-        throw "未找到 FlowCanva 后端程序：$serverExe"
+        throw "FlowCanva backend executable was not found: $serverExe"
     }
     Start-Process -FilePath $serverExe -WorkingDirectory $backendDir -WindowStyle Hidden
 
@@ -30,8 +30,24 @@ if (-not (Test-FlowCanvaServer)) {
         }
     }
     if (-not $ready) {
-        throw 'FlowCanva 后端启动超时，请检查 backend/logs。'
+        throw 'FlowCanva backend startup timed out. Check backend/logs.'
     }
 }
 
-Start-Process $canvasUrl
+$chromeCandidates = @(
+    (Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe'),
+    (Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'),
+    (Join-Path ${env:ProgramFiles(x86)} 'Google\Chrome\Application\chrome.exe')
+)
+$chromeExe = $chromeCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+$edgeExe = Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'
+
+if ($chromeExe) {
+    Start-Process -FilePath $chromeExe -ArgumentList @('--new-tab', $canvasUrl)
+}
+elseif (Test-Path -LiteralPath $edgeExe) {
+    Start-Process -FilePath $edgeExe -ArgumentList @('--new-tab', $canvasUrl)
+}
+else {
+    Start-Process $canvasUrl
+}
