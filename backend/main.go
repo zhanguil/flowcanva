@@ -49,7 +49,7 @@ func main() {
 	if cfg.Embedded {
 		go func() {
 			time.Sleep(800 * time.Millisecond)
-			url := "http://localhost" + cfg.Port
+			url := "http://localhost" + cfg.Port + "/canvas"
 			logger.Info("opening browser", "url", url)
 			openBrowser(url)
 		}()
