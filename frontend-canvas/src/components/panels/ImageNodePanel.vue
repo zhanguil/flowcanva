@@ -3,6 +3,7 @@ import { ref, watch, nextTick } from 'vue'
 import type { Node } from '../../types'
 import MentionDropdown from '../MentionDropdown.vue'
 import type { ResolvedNodeInput } from '../../utils/nodeInputResolver'
+import { useAssets } from '../../composables/useAssets'
 
 const props = defineProps<{
   node: Node | null
@@ -14,6 +15,7 @@ const emit = defineEmits<{
   (e: 'save', content: string): void
   (e: 'remove-connected-edge', edgeId: string): void
   (e: 'generated', payload: { sourceNodeId: string; assets: GeneratedAsset[] }): void
+  (e: 'references-uploaded', payload: { targetNodeId: string; assets: GeneratedAsset[] }): void
 }>()
 
 interface GeneratedAsset {
@@ -23,15 +25,17 @@ interface GeneratedAsset {
   size: number
   width: number
   height: number
+  mime_type?: string
 }
+
+const { addAsset } = useAssets()
 
 const prompt = ref('')
 const promptHtml = ref('')
 const loading = ref(false)
 const modalOpen = ref(false)
-const images = ref<{ id: number; url: string; name?: string }[]>([])
 const generatedImages = ref<{ id: number | string; asset_id?: string; name?: string; url: string; size?: number; width?: number; height?: number }[]>([])
-const connectedImages = ref<Map<string, { id: number; url: string }>>(new Map())
+const connectedImages = ref<Map<string, { id: number; assetId?: string; url: string }>>(new Map())
 let imageCounter = 0
 const previewImg = ref<{ id: number; url: string } | null>(null)
 
@@ -66,9 +70,6 @@ function rebuildDisplay() {
   for (const [, img] of connectedImages.value) {
     list.push({ id: img.id, url: img.url, label: `参考${list.length + 1}`, isRef: true })
   }
-  for (const img of images.value) {
-    list.push({ id: img.id, url: img.url, label: img.name || '上传', isRef: false })
-  }
   allDisplayImages.value = list
 }
 
@@ -76,7 +77,7 @@ watch(() => props.nodeInputs, (inputs) => {
   if (!inputs) return
   const currentEdgeIds = new Set<string>()
   for (const inp of inputs) {
-    const sourceImages = inp.images.length > 0
+    const sourceImages: { url: string; assetId?: string }[] = inp.images.length > 0
       ? inp.images
       : [{ url: inp.data?.dataUrl || inp.data?.url || '' }]
     for (let index = 0; index < sourceImages.length; index++) {
@@ -87,7 +88,7 @@ watch(() => props.nodeInputs, (inputs) => {
         const existing = connectedImages.value.get(inputKey)
         if (!existing) {
           imageCounter++
-          connectedImages.value.set(inputKey, { id: imageCounter, url: imageUrl })
+          connectedImages.value.set(inputKey, { id: imageCounter, assetId: sourceImages[index].assetId, url: imageUrl })
         } else if (existing.url !== imageUrl) {
           connectedImages.value.set(inputKey, { ...existing, url: imageUrl })
         }
@@ -109,18 +110,15 @@ watch(() => props.node, (n) => {
       if (data) {
         prompt.value = data.prompt || ''
         promptHtml.value = data.promptHtml || ''
-        images.value = data.images || []
         generatedImages.value = data.generated_images || []
       } else {
         prompt.value = n.content || ''
         promptHtml.value = ''
-        images.value = []
         generatedImages.value = []
       }
     } catch {
       prompt.value = n.content || ''
       promptHtml.value = ''
-      images.value = []
       generatedImages.value = []
     }
     rebuildDisplay()
@@ -144,7 +142,7 @@ watch(prompt, () => {
   promptSaveTimer = setTimeout(() => {
     const existing: any = {}
     try { if (props.node?.content) Object.assign(existing, JSON.parse(props.node.content)) } catch {}
-    emit('save', buildContent({ images: existing.images || images.value, generated_images: existing.generated_images || generatedImages.value }))
+    emit('save', buildContent({ generated_images: existing.generated_images || generatedImages.value }))
   }, 800)
 })
 
@@ -173,42 +171,30 @@ function syncPrompt(anchor?: 'inline' | 'modal') {
 }
 
 function buildContent(extras: Record<string, any> = {}) {
-  return JSON.stringify({ prompt: prompt.value, promptHtml: promptHtml.value, ...extras })
-}
-
-function compressImage(dataUrl: string): Promise<string> {
-  return new Promise((resolve) => {
-    const img = new Image()
-    img.onload = () => {
-      const max = 1024; let w = img.width, h = img.height
-      if (w > h && w > max) { h = Math.round(h * max / w); w = max }
-      else if (h > max) { w = Math.round(w * max / h); h = max }
-      const c = document.createElement('canvas'); c.width = w; c.height = h
-      c.getContext('2d')!.drawImage(img, 0, 0, w, h)
-      resolve(c.toDataURL('image/jpeg', 0.7))
-    }
-    img.onerror = () => resolve(dataUrl)
-    img.src = dataUrl
+  const outputs = Array.isArray(extras.generated_images) ? extras.generated_images : generatedImages.value
+  const referenceAssetIds = [...new Set([...connectedImages.value.values()].flatMap(image => image.assetId ? [image.assetId] : []))]
+  const generatedAssetIds = outputs.flatMap((image: any) => image.asset_id || image.id ? [image.asset_id || image.id] : [])
+  return JSON.stringify({
+    prompt: prompt.value,
+    promptHtml: promptHtml.value,
+    input: { reference_asset_ids: referenceAssetIds },
+    output: { generated_asset_ids: generatedAssetIds },
+    ...extras,
   })
 }
 
 function onAddImage() {
   const input = document.createElement('input')
-  input.type = 'file'; input.accept = 'image/*'; input.multiple = true
-  input.onchange = () => {
+  input.type = 'file'; input.accept = '.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'; input.multiple = true
+  input.onchange = async () => {
     if (!input.files) return
-    for (const file of input.files) {
-      imageCounter++
-      const name = `图片${imageCounter}`
-      const reader = new FileReader()
-      reader.onload = () => {
-        compressImage(reader.result as string).then(compressed => {
-          images.value.push({ id: imageCounter, name, url: compressed })
-          rebuildDisplay()
-          emit('save', JSON.stringify({ prompt: prompt.value, images: images.value, generated_images: generatedImages.value }))
-        })
-      }
-      reader.readAsDataURL(file)
+    const uploaded: GeneratedAsset[] = []
+    for (const file of Array.from(input.files)) {
+      const asset = await addAsset(file)
+      if (asset) uploaded.push(asset)
+    }
+    if (props.node?.id && uploaded.length > 0) {
+      emit('references-uploaded', { targetNodeId: props.node.id, assets: uploaded })
     }
   }
   input.click()
@@ -283,12 +269,12 @@ async function generate() {
       aspect_ratio: selectedRatio.value,
       image_size: selectedResolution.value,
       // Incoming edge references are resolved authoritatively by the backend.
-      reference_images: images.value.map(image => image.url),
+      reference_images: [],
     }
 
     // 先清空旧图，保存到节点让画布显示空白/加载状态
     generatedImages.value = []
-    emit('save', buildContent({ images: images.value, generated_images: [] }))
+    emit('save', buildContent({ generated_images: [] }))
 
     const res = await fetch('/api/images/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     if (!res.ok) {
@@ -310,7 +296,7 @@ async function generate() {
         })
       }
     }
-    emit('save', buildContent({ images: images.value, generated_images: generatedImages.value }))
+    emit('save', buildContent({ generated_images: generatedImages.value }))
     if (props.node?.id && Array.isArray(data.data) && data.data.length > 0) {
       emit('generated', { sourceNodeId: props.node.id, assets: data.data })
     }
@@ -319,12 +305,6 @@ async function generate() {
     promptHtml.value = prompt.value
     if (editableRef.value) editableRef.value.textContent = prompt.value
   } finally { loading.value = false }
-}
-
-function removeGenerated(img: { id: number; url: string }) {
-  images.value = images.value.filter(i => i.id !== img.id)
-  rebuildDisplay()
-  emit('save', JSON.stringify({ prompt: prompt.value, images: images.value, generated_images: generatedImages.value }))
 }
 
 watch(modalOpen, async (v) => {
@@ -359,7 +339,6 @@ watch(modalOpen, async (v) => {
         <div v-for="img in allDisplayImages" :key="img.id" class="relative shrink-0 w-10 h-10 rounded-lg overflow-hidden border border-white/15 cursor-pointer hover:border-white/50 transition-colors" @click.stop="previewImg = img">
           <img :src="img.url" class="w-full h-full object-cover" />
           <span class="absolute bottom-0 left-0 right-0 text-[7px] text-center bg-black/60 text-white/80 truncate px-0.5 leading-tight">{{ img.label }}</span>
-          <button v-if="!img.isRef" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-neutral-800 border border-white/20 text-white/60 hover:text-white flex items-center justify-center text-[10px] leading-none" @click.stop="removeGenerated({ id: img.id, url: img.url })">×</button>
         </div>
         <button class="shrink-0 w-10 h-10 rounded-lg border border-white/15 flex flex-col items-center justify-center text-white/40 hover:text-white/60 hover:border-white/25 transition-colors gap-0.5" @click="onAddImage">
           <span class="text-sm leading-none">+</span>

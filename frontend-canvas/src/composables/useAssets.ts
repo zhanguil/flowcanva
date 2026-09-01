@@ -7,14 +7,11 @@ export type AssetCategory = typeof ASSET_CATEGORIES[number]
 
 const assets = ref<Asset[]>([])
 const loaded = ref(false)
-let nameCounter = 0
 
 async function loadAssets() {
   if (loaded.value) return
   try {
     assets.value = await fetchAssets()
-    // 从已有资产数量初始化计数器
-    nameCounter = assets.value.length
     loaded.value = true
   } catch (e) {
     console.error('load assets failed', e)
@@ -23,11 +20,7 @@ async function loadAssets() {
 
 async function addAsset(file: File): Promise<Asset | null> {
   try {
-    nameCounter++
-    const ext = file.name.split('.').pop() || 'png'
-    const newName = `资产${nameCounter}.${ext}`
-    const renamed = new File([file], newName, { type: file.type || 'image/png' })
-    const a = await uploadAsset(renamed)
+    const a = await uploadAsset(file)
     assets.value.unshift(a)
     return a
   } catch (e) {

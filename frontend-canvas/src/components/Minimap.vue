@@ -27,6 +27,7 @@ function onClick(e: MouseEvent) {
 
 <template>
   <div
+    data-testid="minimap"
     class="fixed bottom-16 right-4 w-44 h-28 bg-base-200/90 rounded-lg border border-base-300 overflow-hidden z-50 shadow-sm cursor-pointer"
     @click="onClick"
   >

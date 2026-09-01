@@ -40,7 +40,7 @@ func (h *Handler) ListAssets(c *gin.Context) {
 	}
 
 	queryArgs := append(args, pageSize, offset)
-	rows, err := h.db.Query(`SELECT id, filename, url, size, width, height, category, tags, created_at FROM assets`+whereClause+` ORDER BY created_at DESC LIMIT ? OFFSET ?`, queryArgs...)
+	rows, err := h.db.Query(`SELECT id, filename, url, size, mime_type, width, height, category, tags, created_at FROM assets`+whereClause+` ORDER BY created_at DESC LIMIT ? OFFSET ?`, queryArgs...)
 	if err != nil {
 		h.log.Error("list assets", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -53,6 +53,7 @@ func (h *Handler) ListAssets(c *gin.Context) {
 		Filename  string `json:"filename"`
 		URL       string `json:"url"`
 		Size      int64  `json:"size"`
+		MimeType  string `json:"mime_type"`
 		Width     int    `json:"width"`
 		Height    int    `json:"height"`
 		Category  string `json:"category"`
@@ -63,7 +64,7 @@ func (h *Handler) ListAssets(c *gin.Context) {
 	items := []Asset{}
 	for rows.Next() {
 		var a Asset
-		if err := rows.Scan(&a.ID, &a.Filename, &a.URL, &a.Size, &a.Width, &a.Height, &a.Category, &a.Tags, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Filename, &a.URL, &a.Size, &a.MimeType, &a.Width, &a.Height, &a.Category, &a.Tags, &a.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -115,8 +116,14 @@ func (h *Handler) UploadAsset(c *gin.Context) {
 	}
 
 	url := fmt.Sprintf("/uploads/%s", savedName)
-	_, err = h.db.Exec(`INSERT INTO assets (id, filename, url, size) VALUES (?, ?, ?, ?)`,
-		id, file.Filename, url, file.Size)
+	width, _ := strconv.Atoi(c.PostForm("width"))
+	height, _ := strconv.Atoi(c.PostForm("height"))
+	mimeType := c.PostForm("mime_type")
+	if mimeType == "" {
+		mimeType = file.Header.Get("Content-Type")
+	}
+	_, err = h.db.Exec(`INSERT INTO assets (id, filename, url, size, mime_type, width, height) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, file.Filename, url, file.Size, mimeType, width, height)
 	if err != nil {
 		h.log.Error("upload asset", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -125,12 +132,15 @@ func (h *Handler) UploadAsset(c *gin.Context) {
 
 	h.log.Info("asset uploaded", "id", id, "filename", file.Filename)
 	c.JSON(http.StatusCreated, gin.H{
-		"id":       id,
-		"filename": file.Filename,
-		"url":      url,
-		"size":     file.Size,
-		"category": "其他",
-		"tags":     "[]",
+		"id":        id,
+		"filename":  file.Filename,
+		"url":       url,
+		"size":      file.Size,
+		"mime_type": mimeType,
+		"width":     width,
+		"height":    height,
+		"category":  "其他",
+		"tags":      "[]",
 	})
 }
 

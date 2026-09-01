@@ -90,6 +90,34 @@ func TestGenerateFastImageUsesServerModelAndCredential(t *testing.T) {
 	}
 }
 
+func TestGenerationDebugRecordsSanitizedProviderReferenceEvidence(t *testing.T) {
+	raw := testPNG(t)
+	reference := "data:image/png;base64," + base64.StdEncoding.EncodeToString(raw)
+	req := VectorImageRequest{
+		TaskID: "task_debug_reference", Prompt: "keep product", Profile: "fast",
+		AspectRatio: "1:1", ImageSize: "1K", N: 1, ReferenceImages: []string{reference},
+	}
+	payload, err := buildGeminiImagePayload(req, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{devMode: true, generationDebug: &GenerationDebugStore{}}
+	h.generationDebug.Set(GenerationDebugRecord{TaskID: req.TaskID})
+	h.recordProviderPayload(req, payload)
+	h.recordProviderRequestSent(req.TaskID)
+	record, ok := h.generationDebug.Latest()
+	if !ok || !record.ProviderRequestSent || record.ProviderImageCount != 1 || len(record.ProviderImageBytes) != 1 || record.ProviderImageBytes[0] == 0 {
+		t.Fatalf("unexpected provider debug: %#v", record)
+	}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, raw) || strings.Contains(string(encoded), base64.StdEncoding.EncodeToString(raw)) {
+		t.Fatal("provider debug must not expose reference image data")
+	}
+}
+
 func TestGenerateProImageUsesServerProModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

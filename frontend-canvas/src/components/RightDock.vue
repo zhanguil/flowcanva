@@ -13,14 +13,14 @@ defineProps<{
   edgeCount: number
   assetCount: number
   selectedNodeId: string | null
-  selectedImages: { nodeId: string; url: string; name: string }[]
+	  selectedImages: { nodeId: string; assetId: string; url: string; name: string; mimeType: string; width: number; height: number }[]
   devMode: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'update:activeTab', tab: RightDockTab | null): void
   (e: 'select-node', nodeId: string): void
-  (e: 'apply-prompt', prompt: string): void
+	  (e: 'apply-prompt', payload: { prompt: string; referenceNodeIds: string[] }): void
   (e: 'open-assets'): void
   (e: 'load-test-canvas'): void
 }>()
@@ -34,7 +34,7 @@ const tabs: { value: RightDockTab; label: string }[] = [
 
 <template>
   <aside
-    v-if="activeTab"
+	    v-show="activeTab"
     data-testid="right-dock"
     class="fixed right-0 top-12 bottom-0 z-40 flex w-[390px] max-w-[calc(100vw-56px)] flex-col border-l border-white/10 bg-neutral-950/95 text-white shadow-2xl backdrop-blur-xl"
     @pointerdown.stop
@@ -62,15 +62,15 @@ const tabs: { value: RightDockTab; label: string }[] = [
 
     <div class="min-h-0 flex-1 overflow-hidden">
       <AIAssistantPanel
-        v-if="activeTab === 'assistant'"
-        :open="true"
+	        v-show="activeTab === 'assistant'"
+	        :open="activeTab === 'assistant'"
         :canvas-id="canvasId"
         :selected-images="selectedImages"
         @close="emit('update:activeTab', null)"
         @apply-prompt="emit('apply-prompt', $event)"
       />
 
-      <section v-else-if="activeTab === 'project'" data-testid="project-panel" class="flex h-full flex-col overflow-y-auto p-4">
+	      <section v-show="activeTab === 'project'" data-testid="project-panel" class="flex h-full flex-col overflow-y-auto p-4">
         <div class="text-sm font-semibold">{{ canvasName || '未命名画布' }}</div>
         <div class="mt-1 text-[11px] text-white/40">当前项目概览</div>
         <div class="mt-4 grid grid-cols-3 gap-2">
@@ -96,7 +96,7 @@ const tabs: { value: RightDockTab; label: string }[] = [
       </section>
 
       <NodeLayerPanel
-        v-else
+	        v-show="activeTab === 'layers'"
         :nodes="nodes"
         :selected-node-id="selectedNodeId"
         @select="emit('select-node', $event)"

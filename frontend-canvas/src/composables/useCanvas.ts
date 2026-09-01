@@ -1,5 +1,6 @@
 import { reactive, computed, readonly } from 'vue'
 import type { ViewportState } from '../types'
+import { screenToCanvasPoint as convertScreenToCanvasPoint } from '../utils/canvasCoordinates'
 
 const MIN_ZOOM = 0.05
 const MAX_ZOOM = 5
@@ -51,11 +52,8 @@ export function useCanvas() {
     }
   })
 
-  function screenToWorld(sx: number, sy: number) {
-    return {
-      wx: (sx - viewport.ox) / viewport.zoom,
-      wy: (sy - viewport.oy) / viewport.zoom,
-    }
+  function screenToCanvasPoint(sx: number, sy: number) {
+    return convertScreenToCanvasPoint(viewport, sx, sy)
   }
 
   function worldToScreen(wx: number, wy: number) {
@@ -139,7 +137,7 @@ export function useCanvas() {
     viewport: readonly(viewport) as ViewportState,
     worldStyle,
     gridStyle,
-    screenToWorld,
+    screenToCanvasPoint,
     worldToScreen,
     onWheel,
     onPointerDown,

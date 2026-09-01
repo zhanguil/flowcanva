@@ -75,6 +75,7 @@ type GeneratedAsset struct {
 	Filename string `json:"filename"`
 	URL      string `json:"url"`
 	Size     int64  `json:"size"`
+	MimeType string `json:"mime_type"`
 	Width    int    `json:"width"`
 	Height   int    `json:"height"`
 	Category string `json:"category"`
@@ -129,6 +130,7 @@ func (h *Handler) generateGeminiImage(c *gin.Context, req VectorImageRequest, pr
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	h.recordProviderPayload(req, payload)
 	model := h.imageModelForProfile(profile)
 	apiPath := "/v1beta/models/" + url.PathEscape(model) + ":generateContent"
 
@@ -139,6 +141,7 @@ func (h *Handler) generateGeminiImage(c *gin.Context, req VectorImageRequest, pr
 			h.writeImageGenerationError(c, err)
 			return
 		}
+		h.recordProviderRequestSent(req.TaskID)
 		batch, err := normalizeGeminiImages(responseBody)
 		if err != nil {
 			h.log.Error("invalid VectorEngine image response", "model_profile", profile, "error", err)
@@ -369,10 +372,10 @@ func (h *Handler) persistGeneratedImage(uploadDir string, generated geminiInline
 	}
 	asset := GeneratedAsset{
 		ID: id, Filename: filename, URL: "/uploads/" + filename, Size: int64(len(raw)),
-		Width: width, Height: height, Category: "AI生成", Tags: generatedImageTags(profile),
+		MimeType: generated.MIMEType, Width: width, Height: height, Category: "AI生成", Tags: generatedImageTags(profile),
 	}
-	_, err = h.db.Exec(`INSERT INTO assets (id, filename, url, size, width, height, category, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		asset.ID, asset.Filename, asset.URL, asset.Size, asset.Width, asset.Height, asset.Category, asset.Tags)
+	_, err = h.db.Exec(`INSERT INTO assets (id, filename, url, size, mime_type, width, height, category, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		asset.ID, asset.Filename, asset.URL, asset.Size, asset.MimeType, asset.Width, asset.Height, asset.Category, asset.Tags)
 	if err != nil {
 		_ = os.Remove(filePath)
 		return GeneratedAsset{}, fmt.Errorf("登记生成资产: %w", err)

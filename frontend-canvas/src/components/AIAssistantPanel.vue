@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue'
 import { chatWithAssistant } from '../api'
+import { useAssets } from '../composables/useAssets'
+import { isSupportedCanvasImage } from '../utils/canvasCoordinates'
 
 const props = defineProps<{
   open: boolean
   canvasId: string
-  selectedImages: { nodeId: string; url: string; name: string }[]
+	  selectedImages: { nodeId: string; assetId: string; url: string; name: string; mimeType: string; width: number; height: number }[]
 }>()
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'apply-prompt', prompt: string): void
+	  (e: 'apply-prompt', payload: { prompt: string; referenceNodeIds: string[] }): void
 }>()
 
 interface Message {
@@ -25,6 +27,21 @@ const messages = ref<Message[]>([
 const input = ref('')
 const loading = ref(false)
 const scrollRef = ref<HTMLDivElement | null>(null)
+const { addAsset } = useAssets()
+
+interface VisualContextImage {
+	  key: string
+	  nodeId?: string
+	  assetId: string
+	  url: string
+	  name: string
+	  mimeType: string
+	  width: number
+	  height: number
+}
+
+const visualContext = ref<VisualContextImage[]>([])
+const contextUploading = ref(false)
 
 const quickActions = [
   ['产品分析', '请分析当前产品的外观特征与电商视觉卖点。'],
@@ -37,6 +54,67 @@ const quickActions = [
 
 function useQuickAction(value: string) {
   input.value = value
+}
+
+function addSelectedImages() {
+	  const existing = new Set(visualContext.value.map(image => image.key))
+	  for (const image of props.selectedImages) {
+	    const key = `node:${image.nodeId}:${image.assetId || image.url}`
+	    if (existing.has(key)) continue
+	    existing.add(key)
+	    visualContext.value.push({ key, ...image })
+	  }
+}
+
+function removeContextImage(key: string) {
+	  visualContext.value = visualContext.value.filter(image => image.key !== key)
+}
+
+async function addLocalFiles(files: File[]) {
+	  const supported = files.filter(isSupportedCanvasImage)
+	  if (supported.length === 0) return
+	  contextUploading.value = true
+	  try {
+	    for (const file of supported) {
+	      const asset = await addAsset(file)
+	      if (!asset) continue
+	      const key = `asset:${asset.id}`
+	      if (visualContext.value.some(image => image.key === key)) continue
+	      visualContext.value.push({
+	        key,
+	        assetId: asset.id,
+	        url: asset.url,
+	        name: asset.filename,
+	        mimeType: asset.mime_type,
+	        width: asset.width,
+	        height: asset.height,
+	      })
+	    }
+	  } finally {
+	    contextUploading.value = false
+	  }
+}
+
+function chooseLocalImages() {
+	  const input = document.createElement('input')
+	  input.type = 'file'
+	  input.accept = '.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'
+	  input.multiple = true
+  input.onchange = () => addLocalFiles(Array.from(input.files || []))
+	  input.click()
+}
+
+function handleContextDragOver(event: DragEvent) {
+	  if (Array.from(event.dataTransfer?.items || []).some(item => item.kind === 'file')) {
+	    event.preventDefault()
+	    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+	  }
+}
+
+async function handleContextDrop(event: DragEvent) {
+	  event.preventDefault()
+	  event.stopPropagation()
+	  await addLocalFiles(Array.from(event.dataTransfer?.files || []))
 }
 
 async function scrollToBottom() {
@@ -57,9 +135,9 @@ async function send() {
       .map(({ role, content }) => ({ role, content }))
     const result = await chatWithAssistant(
       history,
-      [],
+	      visualContext.value.filter(image => !image.nodeId).map(image => image.url),
       props.canvasId,
-      [...new Set(props.selectedImages.map(image => image.nodeId))],
+	      [...new Set(visualContext.value.flatMap(image => image.nodeId ? [image.nodeId] : []))],
     )
     messages.value.push({ role: 'assistant', content: result.content })
   } catch (error: any) {
@@ -96,19 +174,28 @@ async function send() {
       >{{ action[0] }}</button>
     </div>
 
-    <div class="px-3 py-2 border-b border-white/10">
+	    <div
+	      data-testid="assistant-visual-context"
+	      class="shrink-0 px-3 py-2 border-b border-white/10"
+	      @dragover.stop="handleContextDragOver"
+	      @drop="handleContextDrop"
+	    >
       <div class="flex items-center justify-between mb-1.5">
         <span class="text-[11px] text-white/45">视觉上下文</span>
-        <span class="text-[10px]" :class="selectedImages.length ? 'text-cyan-300' : 'text-white/25'">
-          {{ selectedImages.length ? `已选 ${selectedImages.length} 张` : 'Shift / Ctrl 多选图片' }}
-        </span>
+	        <span class="text-[10px]" :class="visualContext.length ? 'text-cyan-300' : 'text-white/25'">{{ visualContext.length ? `${visualContext.length} 张` : '未添加' }}</span>
       </div>
-      <div v-if="selectedImages.length" class="flex gap-1.5 overflow-x-auto">
-        <div v-for="(image, index) in selectedImages" :key="image.nodeId + image.url" class="relative shrink-0 w-12 h-12 rounded-lg overflow-hidden border border-cyan-400/30 bg-white/5">
+	      <div class="mb-2 flex gap-1.5">
+	        <button data-testid="add-selected-images" class="h-7 rounded-lg border border-cyan-400/25 bg-cyan-400/10 px-2 text-[10px] text-cyan-200 disabled:opacity-35" :disabled="selectedImages.length === 0" @click="addSelectedImages">添加选中图片</button>
+	        <button data-testid="add-local-context" class="h-7 rounded-lg border border-white/10 bg-white/5 px-2 text-[10px] text-white/60" :disabled="contextUploading" @click="chooseLocalImages">{{ contextUploading ? '上传中…' : '添加图片' }}</button>
+	      </div>
+	      <div v-if="visualContext.length" data-testid="visual-context-list" class="flex gap-1.5 overflow-x-auto pb-1">
+	        <div v-for="(image, index) in visualContext" :key="image.key" data-testid="visual-context-item" class="relative shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-cyan-400/30 bg-white/5">
           <img :src="image.url" class="w-full h-full object-cover" />
           <span class="absolute left-0 right-0 bottom-0 bg-black/65 text-[8px] text-center text-white/80">图{{ index + 1 }}</span>
+	          <button class="absolute right-0 top-0 h-4 w-4 bg-black/70 text-[10px] text-white/80" :aria-label="`移除${image.name}`" @click="removeContextImage(image.key)">×</button>
         </div>
       </div>
+	      <div v-else class="rounded-lg border border-dashed border-white/10 px-2 py-2 text-center text-[10px] text-white/25">可拖入 PNG / JPG / WEBP；添加后不会自动发送</div>
     </div>
 
     <div ref="scrollRef" class="flex-1 overflow-y-auto p-4 space-y-4">
@@ -121,7 +208,7 @@ async function send() {
           <button
             v-if="message.role === 'assistant' && index > 0 && !message.error"
             class="mt-3 w-full h-8 rounded-lg border border-blue-400/25 bg-blue-500/10 text-xs text-blue-300 hover:bg-blue-500/20"
-            @click="emit('apply-prompt', message.content)"
+	            @click="emit('apply-prompt', { prompt: message.content, referenceNodeIds: [...new Set(visualContext.flatMap(image => image.nodeId ? [image.nodeId] : []))] })"
           >应用到生图提示词</button>
         </div>
       </div>

@@ -41,6 +41,7 @@ export interface Asset {
   filename: string
   url: string
   size: number
+  mime_type: string
   width: number
   height: number
   category: string

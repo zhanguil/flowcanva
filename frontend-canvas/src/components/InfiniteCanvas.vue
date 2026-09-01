@@ -57,6 +57,7 @@ const emit = defineEmits<{
   (e: 'create-asset-from-screenshot', imageUrl: string, name: string): void
   (e: 'grid-split', data: { cols: number; rows: number; urls: string[] }): void
   (e: 'image-generated', payload: { sourceNodeId: string; assets: any[] }): void
+  (e: 'references-uploaded', payload: { targetNodeId: string; assets: any[] }): void
 }>()
 
 // 连线拖拽状态
@@ -400,7 +401,7 @@ function onPanelSave(content: string) {
     <div :style="gridStyle" />
 
     <!-- 世界层 -->
-    <div :style="worldStyle">
+    <div data-testid="canvas-world" :style="worldStyle">
       <!-- SVG 连线层 -->
       <svg
         class="absolute top-0 left-0 pointer-events-none"
@@ -485,6 +486,7 @@ function onPanelSave(content: string) {
         @remove-asset="(id: string) => emit('remove-asset', id)"
         @create-asset-node="(imageUrl: string, name: string) => emit('create-asset-from-screenshot', imageUrl, name)"
         @generated="(payload: any) => emit('image-generated', payload)"
+        @references-uploaded="(payload: any) => emit('references-uploaded', payload)"
       />
     </div>
 

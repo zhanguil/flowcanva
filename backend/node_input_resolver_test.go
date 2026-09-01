@@ -104,6 +104,15 @@ func assertReferences(t *testing.T, got []string, want ...string) {
 	}
 }
 
+func nodeContent(t *testing.T, db *sql.DB, nodeID string) string {
+	t.Helper()
+	var content string
+	if err := db.QueryRow(`SELECT content FROM nodes WHERE id = ?`, nodeID).Scan(&content); err != nil {
+		t.Fatal(err)
+	}
+	return content
+}
+
 func TestGenerationDataFlowRegression(t *testing.T) {
 	t.Run("Test 1 product asset flows into generation", func(t *testing.T) {
 		f := newDataFlowFixture(t)
@@ -168,5 +177,35 @@ func TestGenerationDataFlowRegression(t *testing.T) {
 			t.Fatal(err)
 		}
 		assertReferences(t, f.generate("C").ReferenceImages, "/uploads/b2.png")
+	})
+
+	t.Run("reference asset remains immutable across three generations", func(t *testing.T) {
+		f := newDataFlowFixture(t)
+		original := assetContent("asset_a", "/uploads/a.png")
+		f.node("A", "asset", original)
+		f.node("B", "image", imageOutputContent())
+		f.edge("A_B", "A", "B")
+
+		var generatedAssetIDs = map[string]bool{}
+		for generation := 0; generation < 3; generation++ {
+			assertReferences(t, f.generate("B").ReferenceImages, "/uploads/a.png")
+			if got := nodeContent(t, f.db, "A"); got != original {
+				t.Fatalf("reference node changed after generation %d: got=%s want=%s", generation+1, got, original)
+			}
+			var content map[string]any
+			if err := json.Unmarshal([]byte(nodeContent(t, f.db, "B")), &content); err != nil {
+				t.Fatal(err)
+			}
+			outputs, _ := content["generated_images"].([]any)
+			if len(outputs) != 1 {
+				t.Fatalf("generation %d outputs=%v", generation+1, outputs)
+			}
+			output, _ := outputs[0].(map[string]any)
+			assetID, _ := output["asset_id"].(string)
+			if assetID == "" || generatedAssetIDs[assetID] {
+				t.Fatalf("generation %d did not create a distinct output asset: %q", generation+1, assetID)
+			}
+			generatedAssetIDs[assetID] = true
+		}
 	})
 }

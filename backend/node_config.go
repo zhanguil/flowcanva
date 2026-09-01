@@ -6,7 +6,7 @@ type NodeConfig struct {
 	ModelName      string `json:"model_name"`
 	APIChannel     string `json:"api_channel"`
 	BaseURL        string `json:"base_url"`
-	APIKey         string `json:"api_key"`
+	APIKey         string `json:"-"`
 	Parameters     string `json:"parameters"`
 	PromptTemplate string `json:"prompt_template"`
 	ExtraConfig    string `json:"extra_config"`

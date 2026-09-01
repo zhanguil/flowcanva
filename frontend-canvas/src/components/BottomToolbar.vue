@@ -1,7 +1,6 @@
 <script setup lang="ts">
 defineProps<{
   zoom: number
-  showMinimap: boolean
   snapToGrid: boolean
 }>()
 
@@ -10,7 +9,6 @@ const emit = defineEmits<{
   (e: 'zoom-out'): void
   (e: 'reset-view'): void
   (e: 'auto-arrange'): void
-  (e: 'toggle-minimap'): void
   (e: 'toggle-snap'): void
 }>()
 </script>
@@ -24,16 +22,6 @@ const emit = defineEmits<{
         <rect x="10" y="1" width="5" height="3" rx="1"/>
         <rect x="1" y="10" width="5" height="4" rx="1"/>
         <rect x="10" y="8" width="5" height="6" rx="1"/>
-      </svg>
-    </button>
-
-    <!-- 小地图 -->
-    <button class="btn btn-ghost btn-sm btn-square h-8 w-8 tooltip tooltip-top"
-      :class="{ 'btn-active': showMinimap }"
-      data-tip="小地图" @click="emit('toggle-minimap')">
-      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M10.9 4c3.8 0 6.9 3.1 6.9 6.9 0 1.5-.6 3.2-1.8 4.7-1.2 1.5-2.5 2.7-3.6 3.4-.5.4-1.1.4-1.6 0-1.1-.7-2.4-2-3.6-3.4-1.2-1.5-1.8-3.2-1.8-4.7 0-3.8 3.1-6.9 6.9-6.9z"/>
-        <circle cx="10.9" cy="10.9" r="2.9"/>
       </svg>
     </button>
 

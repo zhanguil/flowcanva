@@ -83,6 +83,7 @@ func migrate(db *sql.DB, log *slog.Logger) error {
 			filename   TEXT NOT NULL DEFAULT '',
 			url        TEXT NOT NULL DEFAULT '',
 			size       INTEGER NOT NULL DEFAULT 0,
+			mime_type  TEXT NOT NULL DEFAULT '',
 			width      INTEGER NOT NULL DEFAULT 0,
 			height     INTEGER NOT NULL DEFAULT 0,
 			category   TEXT NOT NULL DEFAULT '其他',
@@ -158,7 +159,7 @@ func migrate(db *sql.DB, log *slog.Logger) error {
 	_ = os.MkdirAll("uploads", 0755)
 
 	// backward-compat: add category/tags columns to existing assets table
-	addColsIfMissing(db, "assets", []string{"category TEXT NOT NULL DEFAULT '其他'", "tags TEXT NOT NULL DEFAULT '[]'"})
+	addColsIfMissing(db, "assets", []string{"mime_type TEXT NOT NULL DEFAULT ''", "category TEXT NOT NULL DEFAULT '其他'", "tags TEXT NOT NULL DEFAULT '[]'"})
 
 	// backward-compat: add project_type column to canvases
 	addColsIfMissing(db, "canvases", []string{"project_type TEXT NOT NULL DEFAULT 'canvas'"})

@@ -277,7 +277,6 @@ async function generate() {
     if (modelConfig) {
       if (modelConfig.channel) body.channel = modelConfig.channel
       if (modelConfig.base_url) body.base_url = modelConfig.base_url
-      if (modelConfig.api_key) body.api_key = modelConfig.api_key
     }
     // 只用 images.value（已排序），过滤 image 类型用于上传图床，video/audio 直接传 URL
     const imgUrls = images.value.filter(i => i.mediaType === 'image').map(i => i.dataUrl).filter(Boolean)

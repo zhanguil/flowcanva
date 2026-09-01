@@ -405,7 +405,7 @@ const typeMeta: Record<string, { name: string; icon: string }> = {
     icon: '<path d="M1 3h14M1 7h8M1 11h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/>',
   },
   image: {
-    name: '图片',
+    name: '生图',
     icon: '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="5" cy="5.5" r="1.2" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M1.5 11l3-3 2.5 2.5 2-2 5.5 5.5" stroke="currentColor" stroke-width="1.5" fill="none"/>',
   },
   video: {
@@ -517,13 +517,8 @@ const videoUrls = computed(() => {
 })
 
 const imageUrls = computed(() => {
-  if (props.node.node_type !== 'image') return []
-  try {
-    const data = JSON.parse(props.node.content || '{}')
-    const refs = Array.isArray(data.images) ? data.images.map((i: any) => i.url || '') : []
-    const gens = Array.isArray(data.generated_images) ? data.generated_images.map((i: any) => i.url || '') : []
-    return [...refs, ...gens].filter(Boolean)
-  } catch {}
+  // Image nodes are generation controls. References and generated outputs are
+  // rendered only by their own Asset nodes, never mixed inside this node.
   return []
 })
 

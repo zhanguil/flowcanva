@@ -5,7 +5,6 @@ export interface ModelInfo {
   name: string
   channel: string
   base_url: string
-  api_key: string
   path: string
   protocol?: string
   parameters: Record<string, any>
@@ -21,7 +20,6 @@ interface ExtraModel {
   name?: string
   channel?: string
   base_url?: string
-  api_key?: string
   path?: string
   protocol?: string
   parameters?: Record<string, any>
@@ -33,7 +31,6 @@ interface NodeConfig {
   model_name: string
   api_channel: string
   base_url: string
-  api_key: string
   parameters: string
   prompt_template: string
   extra_config: string
@@ -67,7 +64,6 @@ export function useNodeConfigs() {
             name: c.model_name,
             channel: c.api_channel || '',
             base_url: c.base_url || '',
-            api_key: c.api_key || '',
             path: '',
             protocol: (c as any).protocol || '',
             parameters: parseParams(c.parameters),
@@ -83,7 +79,6 @@ export function useNodeConfigs() {
                 name: m.name,
                 channel: m.channel || '',
                 base_url: m.base_url || '',
-                api_key: m.api_key || '',
                 path: m.path || '',
                 protocol: m.protocol || '',
                 parameters: m.parameters || {},

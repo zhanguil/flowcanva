@@ -3,7 +3,6 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import InfiniteCanvas from './components/InfiniteCanvas.vue'
 import LeftToolbar from './components/LeftToolbar.vue'
 import BottomToolbar from './components/BottomToolbar.vue'
-import Minimap from './components/Minimap.vue'
 import AssetManager from './components/AssetManager.vue'
 import PresetManager from './components/PresetManager.vue'
 import RightDock, { type RightDockTab } from './components/RightDock.vue'
@@ -13,21 +12,22 @@ import { useEdges } from './composables/useEdges'
 import { useHistory } from './composables/useHistory'
 import { useAssets } from './composables/useAssets'
 import { useNodeConfigs } from './composables/useNodeConfigs'
-import { uploadAsset } from './api'
 import type { Node as CanvasNode } from './types'
+import type { Asset } from './types'
+import { isSupportedCanvasImage, staggerCanvasPoint } from './utils/canvasCoordinates'
 
 const consoleURL = import.meta.env.DEV ? '/' : '/'
 const isDev = import.meta.env.DEV
 
 const NODE_LABELS: Record<string, string> = {
   text: '文本',
-  image: '图片',
+  image: '生图',
   video: '视频',
   table: '剧本',
   full_image: '全图',
   agent: '智能体',
   workflow: '工作流',
-  asset: '资产加载',
+  asset: '图片',
   director: '导演台',
 }
 
@@ -35,7 +35,7 @@ const {
   viewport,
   worldStyle,
   gridStyle,
-  screenToWorld,
+  screenToCanvasPoint,
   onWheel,
   onPointerDown,
   onPointerMove,
@@ -74,7 +74,7 @@ const {
 
 const { canUndo, canRedo, push: pushHistory, undo, redo } = useHistory(nodes, edges)
 
-const { assets, loadAssets, setCategory: setAssetCategory, removeAsset } = useAssets()
+const { assets, loadAssets, addAsset, setCategory: setAssetCategory, removeAsset } = useAssets()
 // 进入画布即预加载资产,避免资产节点 picker 首次打开显示"暂无资产"(之前只有打开资产库面板才触发加载)
 loadAssets()
 
@@ -84,8 +84,12 @@ const dockTab = ref<RightDockTab | null>('assistant')
 
 interface AssistantSelectedImage {
   nodeId: string
+  assetId: string
   url: string
   name: string
+  mimeType: string
+  width: number
+  height: number
 }
 
 const selectedAssistantImages = computed<AssistantSelectedImage[]>(() => {
@@ -93,17 +97,23 @@ const selectedAssistantImages = computed<AssistantSelectedImage[]>(() => {
   const seen = new Set<string>()
   for (const nodeId of selectedNodeIds.value) {
     const node = nodes.value.find(item => item.id === nodeId)
-    if (!node || (node.node_type !== 'asset' && node.node_type !== 'image')) continue
+    if (!node || node.node_type !== 'asset') continue
     try {
       const data = JSON.parse(node.content || '{}')
-      const candidates = node.node_type === 'asset'
-        ? [{ url: data.url, name: data.name }]
-        : ((data.generated_images?.length ? data.generated_images : data.images) || [])
+      const candidates = [{ url: data.url, name: data.name }]
       for (const candidate of candidates) {
         const url = candidate?.url
         if (!url || seen.has(url)) continue
         seen.add(url)
-        result.push({ nodeId, url, name: candidate.name || `图${result.length + 1}` })
+        result.push({
+          nodeId,
+          assetId: data.asset_id || '',
+          url,
+          name: candidate.name || `图${result.length + 1}`,
+          mimeType: data.mime_type || '',
+          width: data.width || 0,
+          height: data.height || 0,
+        })
         if (result.length >= 8) return result
       }
     } catch { /* ignore nodes without valid image content */ }
@@ -196,22 +206,66 @@ async function onPaste(e: ClipboardEvent) {
     if (item.type.startsWith('image/')) {
       const file = item.getAsFile()
       if (!file) continue
-      const a = await uploadAsset(file)
+      const a = await addAsset(file)
+      if (!a) continue
       const cx = window.innerWidth / 2
       const cy = window.innerHeight / 2
-      const { wx, wy } = screenToWorld(cx, cy)
+      const { wx, wy } = screenToCanvasPoint(cx, cy)
       pushHistory()
-      const node = await addNode('asset' as any, wx, wy)
-      if (node) {
-        updateNodeContent(node.id, JSON.stringify({ url: a.url, name: a.filename, size: a.size }))
-      }
+      await createAssetImageNode(a, wx, wy)
       break
     }
   }
 }
 
+function assetNodeContent(asset: Asset, parentGenerationNodeId = '') {
+  return JSON.stringify({
+    asset_id: asset.id,
+    url: asset.url,
+    name: asset.filename,
+    size: asset.size,
+    mime_type: asset.mime_type,
+    width: asset.width,
+    height: asset.height,
+    ...(parentGenerationNodeId ? { parent_generation_node_id: parentGenerationNodeId } : {}),
+  })
+}
+
+async function createAssetImageNode(asset: Asset, centerX: number, centerY: number, parentGenerationNodeId = '') {
+  const node = await addNode('asset', centerX, centerY)
+  if (!node) return null
+  await updateNodeContent(node.id, assetNodeContent(asset, parentGenerationNodeId))
+  return node
+}
+
+function hasSupportedDraggedImage(event: DragEvent) {
+  return Array.from(event.dataTransfer?.items || []).some(item => item.kind === 'file')
+}
+
+function handleCanvasDragOver(event: DragEvent) {
+  if ((event.target as HTMLElement).closest('[data-testid="right-dock"]')) return
+  if (!hasSupportedDraggedImage(event)) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+}
+
+async function handleCanvasFileDrop(event: DragEvent) {
+  if ((event.target as HTMLElement).closest('[data-testid="right-dock"]')) return
+  const files = Array.from(event.dataTransfer?.files || []).filter(isSupportedCanvasImage)
+  if (files.length === 0) return
+  event.preventDefault()
+  event.stopPropagation()
+  const origin = screenToCanvasPoint(event.clientX, event.clientY)
+  pushHistory()
+  for (let index = 0; index < files.length; index++) {
+    const asset = await addAsset(files[index])
+    if (!asset) continue
+    const point = staggerCanvasPoint(origin, index)
+    await createAssetImageNode(asset, point.wx, point.wy)
+  }
+}
+
 // 底部工具栏状态
-const showMinimap = ref(true)
 const snapToGrid = ref(false)
 
 function autoArrange() {
@@ -348,7 +402,7 @@ onUnmounted(() => {
 function handleAddNode(type: string) {
   const cx = window.innerWidth / 2
   const cy = window.innerHeight / 2
-  const { wx, wy } = screenToWorld(cx, cy)
+  const { wx, wy } = screenToCanvasPoint(cx, cy)
   pushHistory()
   addNode(type as any, wx, wy)
 }
@@ -385,6 +439,7 @@ interface GeneratedAssetResult {
   filename: string
   url: string
   size: number
+  mime_type: string
   width: number
   height: number
 }
@@ -408,34 +463,38 @@ async function handleGeneratedAssets(payload: { sourceNodeId: string; assets: Ge
     const row = Math.floor(i / columns)
     const centerX = startLeft + col * (nodeWidth + gap) + nodeWidth / 2
     const centerY = startTop + row * (nodeHeight + gap) + nodeHeight / 2
-    const node = await addNode('asset', centerX, centerY)
+    const node = await createAssetImageNode(asset as Asset, centerX, centerY, payload.sourceNodeId)
     if (!node) continue
-    await updateNodeContent(node.id, JSON.stringify({
-      asset_id: asset.id,
-      url: asset.url,
-      name: asset.filename,
-      size: asset.size,
-      width: asset.width,
-      height: asset.height,
-    }))
     await addEdge(payload.sourceNodeId, node.id)
     selectNode(payload.sourceNodeId)
   }
   await loadAssets()
 }
 
-async function handleApplyAssistantPrompt(prompt: string) {
-  const cleanPrompt = prompt.trim()
+async function handleReferenceAssetsUploaded(payload: { targetNodeId: string; assets: Asset[] }) {
+  const target = nodes.value.find(node => node.id === payload.targetNodeId)
+  if (!target || payload.assets.length === 0) return
+  pushHistory()
+  for (let index = 0; index < payload.assets.length; index++) {
+    const centerX = target.x - 360 - (index % 2) * 340
+    const centerY = target.y + 150 + Math.floor(index / 2) * 320
+    const referenceNode = await createAssetImageNode(payload.assets[index], centerX, centerY)
+    if (referenceNode) await addEdge(referenceNode.id, target.id)
+  }
+}
+
+async function handleApplyAssistantPrompt(payload: { prompt: string; referenceNodeIds: string[] }) {
+  const cleanPrompt = payload.prompt.trim()
   if (!cleanPrompt) return
   const source = selectedNode.value
-  const referenceNodeIds = [...new Set(selectedAssistantImages.value.map(image => image.nodeId))]
+  const referenceNodeIds = [...new Set(payload.referenceNodeIds)]
   let centerX: number
   let centerY: number
   if (source) {
     centerX = source.x + source.width + 80 + 200
     centerY = source.y + 150
   } else {
-    const world = screenToWorld(Math.max(220, (window.innerWidth - 390) / 2), window.innerHeight / 2)
+    const world = screenToCanvasPoint(Math.max(220, (window.innerWidth - 390) / 2), window.innerHeight / 2)
     centerX = world.wx
     centerY = world.wy
   }
@@ -491,10 +550,6 @@ async function handleGridSplit(data: { cols: number; rows: number; urls: string[
       }
     }
   }
-}
-
-function handleNavigate(wx: number, wy: number) {
-  navigateTo(wx, wy)
 }
 
 function handleLayerSelect(id: string) {
@@ -622,11 +677,14 @@ async function handleSavePanel(content: string) {
 
 <template>
   <div
+    data-testid="canvas-drop-zone"
     class="w-screen h-screen overflow-hidden bg-base-100"
     @wheel="onWheel"
     @pointerdown="onPointerDown"
     @pointermove="onPointerMove"
     @pointerup="onPointerUp"
+    @dragover="handleCanvasDragOver"
+    @drop="handleCanvasFileDrop"
   >
     <!-- 顶部栏 -->
     <header class="fixed top-0 left-0 right-0 z-50 h-12 flex items-center justify-between px-4 bg-base-200/80 backdrop-blur border-b border-base-300">
@@ -706,6 +764,7 @@ async function handleSavePanel(content: string) {
       @remove-asset="handleRemoveAsset"
       @create-asset-from-screenshot="handleCreateAssetFromScreenshot"
       @image-generated="handleGeneratedAssets"
+      @references-uploaded="handleReferenceAssetsUploaded"
       @grid-split="handleGridSplit"
     />
 
@@ -722,20 +781,12 @@ async function handleSavePanel(content: string) {
 
     <BottomToolbar
       :zoom="viewport.zoom"
-      :show-minimap="showMinimap"
       :snap-to-grid="snapToGrid"
       @zoom-in="zoomIn"
       @zoom-out="zoomOut"
       @reset-view="resetView"
       @auto-arrange="autoArrange"
-      @toggle-minimap="showMinimap = !showMinimap"
       @toggle-snap="snapToGrid = !snapToGrid"
-    />
-
-    <Minimap v-if="showMinimap"
-      :viewport="viewport"
-      :nodes="nodes"
-      @navigate="handleNavigate"
     />
 
     <AssetManager v-if="showAssetManager" @close="showAssetManager = false" />

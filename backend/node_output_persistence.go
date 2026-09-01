@@ -29,13 +29,16 @@ func (h *Handler) persistNodeGeneratedOutputs(canvasID, nodeID string, assets []
 		_ = json.Unmarshal([]byte(content), &data)
 	}
 	outputs := make([]map[string]any, 0, len(assets))
+	outputIDs := make([]string, 0, len(assets))
 	for _, asset := range assets {
+		outputIDs = append(outputIDs, asset.ID)
 		outputs = append(outputs, map[string]any{
 			"id": asset.ID, "asset_id": asset.ID, "name": asset.Filename, "url": asset.URL,
-			"size": asset.Size, "width": asset.Width, "height": asset.Height,
+			"size": asset.Size, "mime_type": asset.MimeType, "width": asset.Width, "height": asset.Height,
 		})
 	}
 	data["generated_images"] = outputs
+	data["output"] = map[string]any{"generated_asset_ids": outputIDs}
 	encoded, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("编码生图节点输出: %w", err)

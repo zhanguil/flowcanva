@@ -88,16 +88,44 @@ export function fetchNodeConfigs() {
   return req<any[]>(`/api/admin/node-configs`)
 }
 
-export function uploadAsset(file: File): Promise<Asset> {
+async function readImageSize(file: File): Promise<{ width: number; height: number }> {
+  if (!file.type.startsWith('image/')) return { width: 0, height: 0 }
+  if ('createImageBitmap' in window) {
+    try {
+      const bitmap = await createImageBitmap(file)
+      const result = { width: bitmap.width, height: bitmap.height }
+      bitmap.close()
+      return result
+    } catch { /* use HTMLImageElement fallback */ }
+  }
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(file)
+    const image = new Image()
+    image.onload = () => {
+      resolve({ width: image.naturalWidth, height: image.naturalHeight })
+      URL.revokeObjectURL(url)
+    }
+    image.onerror = () => {
+      resolve({ width: 0, height: 0 })
+      URL.revokeObjectURL(url)
+    }
+    image.src = url
+  })
+}
+
+export async function uploadAsset(file: File): Promise<Asset> {
+  const dimensions = await readImageSize(file)
   const fd = new FormData()
   fd.append('file', file)
-  return fetch('/api/admin/assets/upload', { method: 'POST', body: fd }).then(async r => {
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}))
-      throw new Error(err.error || r.statusText)
-    }
-    return r.json()
-  })
+  fd.append('mime_type', file.type || 'application/octet-stream')
+  fd.append('width', String(dimensions.width))
+  fd.append('height', String(dimensions.height))
+  const response = await fetch('/api/admin/assets/upload', { method: 'POST', body: fd })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}))
+    throw new Error(error.error || response.statusText)
+  }
+  return response.json()
 }
 
 export function updateAsset(id: string, data: { category?: string; tags?: string }) {
@@ -112,12 +140,11 @@ export function deleteAsset(id: string) {
 }
 
 // LLM
-export function chatWithLLM(model: string, messages: { role: string; content: any }[], modelConfig?: { channel?: string; base_url?: string; api_key?: string; parameters?: Record<string, any> } | null) {
+export function chatWithLLM(model: string, messages: { role: string; content: any }[], modelConfig?: { channel?: string; base_url?: string; parameters?: Record<string, any> } | null) {
   const body: Record<string, any> = { model, messages }
   if (modelConfig) {
     if (modelConfig.channel) body.channel = modelConfig.channel
     if (modelConfig.base_url) body.base_url = modelConfig.base_url
-    if (modelConfig.api_key) body.api_key = modelConfig.api_key
     if (modelConfig.parameters) body.parameters = modelConfig.parameters
   }
   return req<any>(`${BASE}/llm/chat`, {
@@ -126,12 +153,11 @@ export function chatWithLLM(model: string, messages: { role: string; content: an
   })
 }
 
-export async function* chatWithLLMStream(model: string, messages: { role: string; content: any }[], modelConfig?: { channel?: string; base_url?: string; api_key?: string; parameters?: Record<string, any> } | null) {
+export async function* chatWithLLMStream(model: string, messages: { role: string; content: any }[], modelConfig?: { channel?: string; base_url?: string; parameters?: Record<string, any> } | null) {
   const body: Record<string, any> = { model, messages, stream: true }
   if (modelConfig) {
     if (modelConfig.channel) body.channel = modelConfig.channel
     if (modelConfig.base_url) body.base_url = modelConfig.base_url
-    if (modelConfig.api_key) body.api_key = modelConfig.api_key
     if (modelConfig.parameters) body.parameters = modelConfig.parameters
   }
   const res = await fetch(`${BASE}/llm/chat`, {
