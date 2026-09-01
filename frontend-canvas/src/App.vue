@@ -232,10 +232,7 @@ function assetNodeContent(asset: Asset, parentGenerationNodeId = '') {
 }
 
 async function createAssetImageNode(asset: Asset, centerX: number, centerY: number, parentGenerationNodeId = '') {
-  const node = await addNode('asset', centerX, centerY)
-  if (!node) return null
-  await updateNodeContent(node.id, assetNodeContent(asset, parentGenerationNodeId))
-  return node
+  return addNode('asset', centerX, centerY, assetNodeContent(asset, parentGenerationNodeId))
 }
 
 function hasSupportedDraggedImage(event: DragEvent) {

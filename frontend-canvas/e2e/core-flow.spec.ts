@@ -91,7 +91,7 @@ test('core data flow: create, connect, mock generate, chain generated output', a
 
   await connectNodes(page, createdNode.id, testCanvas.nodes.generation_c)
 
-  await page.locator(`[data-node-id="${testCanvas.nodes.generation_b}"].canvas-node`).click({ position: { x: 100, y: 80 } })
+  await page.locator(`[data-node-id="${testCanvas.nodes.generation_b}"].canvas-node`).click({ position: { x: 100, y: 60 } })
   await expect(page.getByTestId('image-node-panel')).toBeVisible()
   const generationResponse = page.waitForResponse(response =>
     response.url().includes('/api/images/generate') && response.request().method() === 'POST',
@@ -112,7 +112,7 @@ test('core data flow: create, connect, mock generate, chain generated output', a
   expect(outputNode).toBeTruthy()
   await connectNodes(page, outputNode.id, testCanvas.nodes.generation_c)
 
-  await page.locator(`[data-node-id="${testCanvas.nodes.generation_c}"].canvas-node`).click({ position: { x: 120, y: 90 } })
+  await page.locator(`[data-node-id="${testCanvas.nodes.generation_c}"].canvas-node`).click({ position: { x: 120, y: 60 } })
   await expect(page.getByTestId('image-node-panel')).toBeVisible()
   const chainedResponse = page.waitForResponse(response =>
     response.url().includes('/api/images/generate') && response.request().method() === 'POST',
@@ -132,6 +132,39 @@ test('core data flow: create, connect, mock generate, chain generated output', a
   expect(debug.reference_image_count).toBeGreaterThanOrEqual(2)
 })
 
+test('image output handle exposes a clear continue-generation action and creates a connected Generation node', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 })
+  const testCanvas = await createTestCanvas(request)
+  await openTestCanvas(page, testCanvas)
+  await page.getByTestId('dock-close').click()
+
+  const handle = page.locator(`[data-node-id="${testCanvas.nodes.product_a}"][data-connect-handle="right"]`)
+  await expect(handle).toBeVisible()
+  const box = await handle.boundingBox()
+  expect(box).not.toBeNull()
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(420, 760, { steps: 10 })
+  await page.mouse.up()
+
+  const continueButton = page.getByTestId('connect-create-image')
+  await expect(continueButton).toBeVisible()
+  await expect(continueButton).toHaveText('继续生图')
+  const nodeResponse = page.waitForResponse(response =>
+    response.url().includes(`/api/canvases/${testCanvas.canvas_id}/nodes`) && response.request().method() === 'POST',
+  )
+  const edgeResponse = page.waitForResponse(response =>
+    response.url().includes(`/api/canvases/${testCanvas.canvas_id}/edges`) && response.request().method() === 'POST',
+  )
+  await continueButton.click()
+  const created = await (await nodeResponse).json()
+  expect(created.node_type).toBe('image')
+  const edge = await (await edgeResponse).json()
+  expect(edge.source_node_id).toBe(testCanvas.nodes.product_a)
+  expect(edge.target_node_id).toBe(created.id)
+  await expect(page.locator(`[data-node-id="${created.id}"][data-node-type="image"]`)).toBeVisible()
+})
+
 test('Tests 1-2: reference input stays unchanged and every generation creates an independent output node', async ({ page, request }) => {
   await page.setViewportSize({ width: 1920, height: 1080 })
   const testCanvas = await createTestCanvas(request)
@@ -142,9 +175,15 @@ test('Tests 1-2: reference input stays unchanged and every generation creates an
   const originalReference = before.nodes.find(node => node.id === testCanvas.nodes.product_a)
   expect(originalReference).toBeTruthy()
 
-  await page.locator(`[data-node-id="${testCanvas.nodes.generation_b}"].canvas-node`).click({ position: { x: 100, y: 80 } })
+  const generationNode = page.locator(`[data-node-id="${testCanvas.nodes.generation_b}"].canvas-node`)
+  const generationBox = await generationNode.boundingBox()
+  expect(generationBox).not.toBeNull()
+  expect(generationBox!.height).toBeLessThanOrEqual(90)
+  await expect(generationNode.getByTestId('generation-node-control')).toBeVisible()
+  await generationNode.click({ position: { x: 100, y: 60 } })
   await expect(page.getByTestId('image-node-panel')).toBeVisible()
   await expect(page.locator(`[data-node-id="${testCanvas.nodes.generation_b}"] img`)).toHaveCount(0)
+  await expect(page.getByTitle('放大预览')).toHaveCount(0)
 
   for (let generation = 1; generation <= 3; generation++) {
     const response = page.waitForResponse(item => item.url().includes('/api/images/generate') && item.request().method() === 'POST')

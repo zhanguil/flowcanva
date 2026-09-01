@@ -75,12 +75,12 @@ const snapTarget = ref<{ nodeId: string; dir: string } | null>(null)
 // 拉线空白处弹出菜单
 const connectMenu = ref<{ x: number; y: number; sourceNodeId: string } | null>(null)
 const connectMenuTypes = [
+  { type: 'image', label: '继续生图', icon: '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="5" cy="5.5" r="1.2" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M1.5 11l3-3 2.5 2.5 2-2 5.5 5.5" stroke="currentColor" stroke-width="1.5" fill="none"/>' },
   { type: 'text', label: '文本', icon: '<path d="M1 3h14M1 7h8M1 11h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/>' },
-  { type: 'image', label: '图片', icon: '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="5" cy="5.5" r="1.2" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M1.5 11l3-3 2.5 2.5 2-2 5.5 5.5" stroke="currentColor" stroke-width="1.5" fill="none"/>' },
   { type: 'video', label: '视频', icon: '<rect x="1.5" y="3" width="9" height="10" rx="1.5" stroke="currentColor" stroke-width="1.5" fill="none"/><polygon points="12 4.5 12 11.5 14.5 8" fill="currentColor"/>' },
   { type: 'table', label: '剧本', icon: '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5" fill="none"/><line x1="1.5" y1="6" x2="14.5" y2="6" stroke="currentColor" stroke-width="1.2"/><line x1="5.5" y1="2.5" x2="5.5" y2="13.5" stroke="currentColor" stroke-width="1.2"/>' },
   { type: 'agent', label: '智能体', icon: '<rect x="2.5" y="2.5" width="11" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="6" cy="6.5" r="1" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="10" cy="6.5" r="1" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M6 10c.5 1 1.5 1.5 2 1.5s1.5-.5 2-1.5" stroke="currentColor" stroke-width="1.2" fill="none"/>' },
-  { type: 'asset', label: '资产', icon: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="1.5" fill="none"/><polyline points="17 8 12 3 7 8" stroke="currentColor" stroke-width="1.5" fill="none"/><line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" stroke-width="1.5"/>' },
+  { type: 'asset', label: '图片节点', icon: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="1.5" fill="none"/><polyline points="17 8 12 3 7 8" stroke="currentColor" stroke-width="1.5" fill="none"/><line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" stroke-width="1.5"/>' },
 ]
 
 // 节点内容区水平边距（匹配 CanvasNode mx-2 = 0.5rem = 8px）
@@ -494,8 +494,15 @@ function onPanelSave(content: string) {
     <Teleport to="body">
       <div v-if="connectMenu" class="fixed z-[9999]" :style="{ left: connectMenu.x + 'px', top: connectMenu.y + 'px', transform: 'translate(-50%, 12px)' }" @pointerdown.stop>
         <div class="flex w-[196px] flex-col gap-1 rounded-2xl p-2 backdrop-blur-[32px] border border-white/15 bg-neutral-900/95 shadow-xl">
-          <div class="flex h-7 items-center px-2 text-xs text-white/50">引用源节点创建</div>
-          <button v-for="t in connectMenuTypes" :key="t.type" class="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-white/85 hover:bg-white/10 transition-colors cursor-pointer" @click="onConnectMenuClick(t.type)">
+          <div class="flex h-7 items-center px-2 text-xs text-white/50">基于当前节点继续</div>
+          <button
+            v-for="t in connectMenuTypes"
+            :key="t.type"
+            :data-testid="`connect-create-${t.type}`"
+            class="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left transition-colors cursor-pointer"
+            :class="t.type === 'image' ? 'bg-cyan-400/15 text-cyan-200 hover:bg-cyan-400/25' : 'text-white/85 hover:bg-white/10'"
+            @click="onConnectMenuClick(t.type)"
+          >
             <svg class="shrink-0 text-white/60" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" v-html="t.icon" />
             <span class="text-[13px] truncate">{{ t.label }}</span>
           </button>

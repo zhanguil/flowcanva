@@ -632,23 +632,12 @@ onMounted(() => {
         ></div>
       </div>
 
-      <!-- 图片节点 -->
-      <div v-else-if="node.node_type === 'image'" class="h-full flex items-center justify-center overflow-hidden relative">
-        <template v-if="imageUrls.length > 0">
-          <img v-for="(url, i) in imageUrls" :key="i" :src="url" class="rounded-lg object-contain w-full h-full pointer-events-none select-none" @load="(e) => { const img = e.target as HTMLImageElement; const maxW = 600; const maxH = 480; let w = img.naturalWidth, h = img.naturalHeight; if (w > maxW) { h = h * maxW / w; w = maxW; } if (h > maxH) { w = w * maxH / h; h = maxH; } emit('image-loaded', { w: Math.round(w) + 60, h: Math.round(h) + 36 }); }" />
-          <!-- 宫格裁剪覆盖层 -->
-          <div v-if="imageGridCols > 0 && imageGridRows > 0" class="absolute inset-0 pointer-events-none z-10">
-            <div v-for="c in imageGridCols - 1" :key="'vc'+c" class="absolute top-0 bottom-0 border-r border-primary/60" :style="{ left: (c * 100 / imageGridCols) + '%' }" />
-            <div v-for="r in imageGridRows - 1" :key="'hr'+r" class="absolute left-0 right-0 border-t border-primary/60" :style="{ top: (r * 100 / imageGridRows) + '%' }" />
-          </div>
-        </template>
-        <div v-else class="flex items-center justify-center text-white/30 w-full h-full">
-          <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-            <circle cx="8.5" cy="8.5" r="1.5"/>
-            <polyline points="21 15 16 10 5 21"/>
-          </svg>
-        </div>
+      <!-- 生图控制节点：输出图片始终在独立 Asset Node 中展示。 -->
+      <div v-else-if="node.node_type === 'image'" data-testid="generation-node-control" class="flex h-full items-center gap-2 px-3 text-white/45">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="shrink-0 text-cyan-300/70">
+          <path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8L12 3z"/>
+        </svg>
+        <span class="truncate text-[11px]">连接参考图，在下方设置提示词并生成</span>
       </div>
 
       <!-- 视频节点 -->
@@ -884,43 +873,6 @@ onMounted(() => {
           <button class="flex items-center gap-1.5 h-7 px-2 text-xs text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition-colors" @pointerdown.stop.prevent="emit('edit-script')">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             <span class="text-[11px]">编辑剧本</span>
-          </button>
-        </div>
-      </div>
-    </Teleport>
-
-    <!-- 图片节点工具栏 -->
-    <Teleport to="body">
-      <div v-if="selected && node.node_type === 'image'" class="fixed z-[9999]" :style="{ left: toolbarPos.left + 'px', top: toolbarPos.top + 'px', transform: 'translate(-50%, -100%)' }" @pointerdown.stop>
-        <div class="flex items-center gap-1 rounded-xl px-2 py-2 border border-white/10 bg-neutral-800/95 backdrop-blur-md shadow-lg">
-          <!-- 宫格裁剪 -->
-          <div class="relative">
-            <button class="flex items-center gap-1 h-7 px-2 text-xs text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition-colors" :class="imageGridCols>0?'text-primary bg-primary/10':''" @pointerdown.stop.prevent="showImageGridPicker = !showImageGridPicker">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
-              <span class="text-[11px]">宫格</span>
-            </button>
-            <div v-if="showImageGridPicker" class="absolute top-full left-0 mt-1 bg-neutral-800 border border-white/15 rounded-xl p-1.5 shadow-xl min-w-[140px] z-50" @pointerdown.stop>
-              <button v-for="g in [[0,0,'关闭'],[2,2,'4宫格'],[3,3,'9宫格'],[4,4,'16宫格'],[5,5,'25宫格']]" :key="g[2]" class="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded-lg hover:bg-white/10 transition-colors" :class="imageGridCols===g[0]&&imageGridRows===g[1]?'text-primary bg-primary/10':'text-white/60'" @pointerdown.stop.prevent="imageGridCols=g[0] as number; imageGridRows=g[1] as number; showImageGridPicker=false">{{ g[2] }}</button>
-            </div>
-          </div>
-          <!-- 分镜导出下载 -->
-          <button v-if="imageGridCols>1 && imageGridRows>1" class="flex items-center gap-1 h-7 px-2 text-xs text-white/50 hover:text-white hover:bg-white/10 rounded-lg transition-colors" title="分镜下载" @pointerdown.stop.prevent="storyboardExport()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            <span class="text-[11px]">下载</span>
-          </button>
-          <!-- 分镜到画布: 切块生成资产节点 -->
-          <button v-if="imageGridCols>1 && imageGridRows>1" class="flex items-center gap-1 h-7 px-2 text-xs text-primary/70 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors" title="分镜到画布" @pointerdown.stop.prevent="splitToAssets()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-            <span class="text-[11px]">分镜</span>
-          </button>
-          <span class="w-px h-4 bg-white/10" />
-          <!-- 放大预览 -->
-          <button class="w-7 h-7 flex items-center justify-center rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-colors" title="放大预览" @pointerdown.stop.prevent="imagePreviewOpen = true">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-          </button>
-          <!-- 下载 -->
-          <button v-if="imageUrls.length > 0" class="w-7 h-7 flex items-center justify-center rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-colors" title="下载图片" @pointerdown.stop.prevent="downloadImage(imageUrls[0])">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           </button>
         </div>
       </div>

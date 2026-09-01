@@ -3,6 +3,7 @@ node_modules/
 go*.windows-amd64.zip
 dist/
 *.exe
+*.exe~
 *.db
 uploads/
 .env

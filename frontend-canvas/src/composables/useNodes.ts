@@ -48,11 +48,12 @@ export function useNodes() {
     type: Node['node_type'],
     wx: number,
     wy: number,
+    content = '',
   ) {
     if (!canvasId.value) return
     const defaults: Record<string, { w: number; h: number; color: string }> = {
       text: { w: 480, h: 270, color: '#FEF3C7' },
-      image: { w: 400, h: 300, color: '#DBEAFE' },
+      image: { w: 400, h: 88, color: '#DBEAFE' },
       video: { w: 480, h: 320, color: '#EDE9FE' },
       table: { w: 960, h: 540, color: '#D1FAE5' },
       full_image: { w: 420, h: 280, color: '#FEE2E2' },
@@ -68,7 +69,7 @@ export function useNodes() {
       y: wy - d.h / 2,
       width: d.w,
       height: d.h,
-      content: '',
+      content,
       config: '{}',
     })
     nodes.value.push(n)

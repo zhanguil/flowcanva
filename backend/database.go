@@ -160,6 +160,11 @@ func migrate(db *sql.DB, log *slog.Logger) error {
 
 	// backward-compat: add category/tags columns to existing assets table
 	addColsIfMissing(db, "assets", []string{"mime_type TEXT NOT NULL DEFAULT ''", "category TEXT NOT NULL DEFAULT '其他'", "tags TEXT NOT NULL DEFAULT '[]'"})
+	// Generation nodes are controls. Their images now live in independent asset nodes,
+	// so collapse legacy 300px preview cards that no longer render an output preview.
+	if _, err := db.Exec(`UPDATE nodes SET height = 88 WHERE node_type = 'image' AND height > 120`); err != nil {
+		log.Warn("compact legacy generation nodes", "error", err)
+	}
 
 	// backward-compat: add project_type column to canvases
 	addColsIfMissing(db, "canvases", []string{"project_type TEXT NOT NULL DEFAULT 'canvas'"})

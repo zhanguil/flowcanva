@@ -43,8 +43,8 @@ func (h *Handler) CreateDevTestCanvas(c *gin.Context) {
 		x, y, width, height   float64
 	}{
 		{"node_product_a_" + suffix, "asset", string(productContent), 120, 160, 260, 240},
-		{"node_generation_b_" + suffix, "image", string(generationB), 520, 150, 400, 300},
-		{"node_generation_c_" + suffix, "image", string(generationC), 1040, 280, 400, 300},
+		{"node_generation_b_" + suffix, "image", string(generationB), 520, 150, 400, 88},
+		{"node_generation_c_" + suffix, "image", string(generationC), 1040, 280, 400, 88},
 		{"node_reference_d_" + suffix, "asset", string(referenceContent), 560, 560, 260, 240},
 	}
 	for _, node := range nodes {
