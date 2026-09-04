@@ -132,6 +132,82 @@ test('core data flow: create, connect, mock generate, chain generated output', a
   expect(debug.reference_image_count).toBeGreaterThanOrEqual(2)
 })
 
+test('image generation tasks run concurrently and render results on their original nodes', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  const testCanvas = await createTestCanvas(request)
+  const generationRequests: any[] = []
+  const releaseRequest = new Map<string, () => void>()
+
+  await page.route('**/api/images/generate', async route => {
+    const body = route.request().postDataJSON()
+    generationRequests.push(body)
+    await new Promise<void>(resolve => releaseRequest.set(body.node_id, resolve))
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: [{
+          id: `asset_${body.node_id}`,
+          filename: `${body.node_id}.png`,
+          url: `data:image/png;base64,${tinyPng}`,
+          size: 68,
+          mime_type: 'image/png',
+          width: 1,
+          height: 1,
+        }],
+        task_id: body.task_id,
+      }),
+    })
+  })
+
+  await openTestCanvas(page, testCanvas)
+  await page.getByTestId('dock-close').click()
+
+  await page.locator(`[data-node-id="${testCanvas.nodes.generation_b}"].canvas-node`).click({ position: { x: 100, y: 60 } })
+  await page.getByTestId('generate-image').click()
+  await expect.poll(() => generationRequests.length).toBe(1)
+  await expect(page.locator(`[data-node-id="${testCanvas.nodes.generation_b}"]`).getByText('正在生成')).toBeVisible()
+
+  await page.locator(`[data-node-id="${testCanvas.nodes.generation_c}"].canvas-node`).click({ position: { x: 100, y: 60 } })
+  await expect(page.getByTestId('generate-image')).toBeEnabled()
+  await page.getByTestId('generate-image').click()
+  await expect.poll(() => generationRequests.length).toBe(2)
+
+  expect(generationRequests.map(item => item.node_id)).toEqual([
+    testCanvas.nodes.generation_b,
+    testCanvas.nodes.generation_c,
+  ])
+  expect(new Set(generationRequests.map(item => item.task_id)).size).toBe(2)
+
+  releaseRequest.get(testCanvas.nodes.generation_c)!()
+  await expect.poll(async () => {
+    const snapshot = await canvasSnapshot(request, testCanvas.canvas_id)
+    return snapshot.nodes.some(node => {
+      try { return JSON.parse(node.content || '{}').parent_generation_node_id === testCanvas.nodes.generation_c } catch { return false }
+    })
+  }).toBeTruthy()
+
+  releaseRequest.get(testCanvas.nodes.generation_b)!()
+  await expect.poll(async () => {
+    const snapshot = await canvasSnapshot(request, testCanvas.canvas_id)
+    return snapshot.nodes.filter(node => {
+      try {
+        const content = JSON.parse(node.content || '{}')
+        return [testCanvas.nodes.generation_b, testCanvas.nodes.generation_c].includes(content.parent_generation_node_id)
+      } catch { return false }
+    }).length
+  }).toBe(2)
+
+  const snapshot = await canvasSnapshot(request, testCanvas.canvas_id)
+  for (const sourceNodeID of [testCanvas.nodes.generation_b, testCanvas.nodes.generation_c]) {
+    const result = snapshot.nodes.find(node => {
+      try { return JSON.parse(node.content || '{}').parent_generation_node_id === sourceNodeID } catch { return false }
+    })
+    expect(result).toBeTruthy()
+    expect(snapshot.edges).toContainEqual(expect.objectContaining({ source_node_id: sourceNodeID, target_node_id: result!.id }))
+  }
+})
+
 test('image output handle exposes a clear continue-generation action and creates a connected Generation node', async ({ page, request }) => {
   await page.setViewportSize({ width: 1600, height: 1000 })
   const testCanvas = await createTestCanvas(request)

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import type { Node } from '../../types'
 import MentionDropdown from '../MentionDropdown.vue'
 import type { ResolvedNodeInput } from '../../utils/nodeInputResolver'
 import { useAssets } from '../../composables/useAssets'
+import { useImageGenerationTasks } from '../../composables/useImageGenerationTasks'
 
 const props = defineProps<{
   node: Node | null
@@ -12,7 +13,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'save', content: string): void
+  (e: 'save', payload: { nodeId: string; content: string }): void
   (e: 'remove-connected-edge', edgeId: string): void
   (e: 'generated', payload: { sourceNodeId: string; assets: GeneratedAsset[] }): void
   (e: 'references-uploaded', payload: { targetNodeId: string; assets: GeneratedAsset[] }): void
@@ -29,10 +30,12 @@ interface GeneratedAsset {
 }
 
 const { addAsset } = useAssets()
+const { tasks, startImageGeneration } = useImageGenerationTasks()
 
 const prompt = ref('')
 const promptHtml = ref('')
-const loading = ref(false)
+const loading = computed(() => Boolean(props.node?.id && tasks[props.node.id]?.status === 'running'))
+const generationError = computed(() => props.node?.id ? tasks[props.node.id]?.error || '' : '')
 const modalOpen = ref(false)
 const generatedImages = ref<{ id: number | string; asset_id?: string; name?: string; url: string; size?: number; width?: number; height?: number }[]>([])
 const connectedImages = ref<Map<string, { id: number; assetId?: string; url: string }>>(new Map())
@@ -139,10 +142,13 @@ watch(() => props.node, (n) => {
 let promptSaveTimer: ReturnType<typeof setTimeout> | null = null
 watch(prompt, () => {
   if (promptSaveTimer) clearTimeout(promptSaveTimer)
+  const nodeId = props.node?.id
+  if (!nodeId) return
+  const existing: any = {}
+  try { if (props.node?.content) Object.assign(existing, JSON.parse(props.node.content)) } catch {}
+  const content = buildContent({ generated_images: existing.generated_images || generatedImages.value })
   promptSaveTimer = setTimeout(() => {
-    const existing: any = {}
-    try { if (props.node?.content) Object.assign(existing, JSON.parse(props.node.content)) } catch {}
-    emit('save', buildContent({ generated_images: existing.generated_images || generatedImages.value }))
+    emit('save', { nodeId, content })
   }, 800)
 })
 
@@ -255,56 +261,25 @@ function insertMention(img: { id: any; name: string; src: string }) {
 
 async function generate() {
   const requestPrompt = (prompt.value || editableRef.value?.textContent || '').trim()
-  if (!requestPrompt || loading.value) return
+  const node = props.node
+  if (!node || !requestPrompt || loading.value) return
   if (!prompt.value) prompt.value = requestPrompt
-  loading.value = true
-  try {
-    const body = {
-      task_id: `task_${crypto.randomUUID()}`,
-      canvas_id: props.node?.canvas_id,
-      node_id: props.node?.id,
-      profile: selectedModel.value,
-      prompt: requestPrompt,
-      n: selectedCount.value,
-      aspect_ratio: selectedRatio.value,
-      image_size: selectedResolution.value,
-      // Incoming edge references are resolved authoritatively by the backend.
-      reference_images: [],
-    }
-
-    // 先清空旧图，保存到节点让画布显示空白/加载状态
-    generatedImages.value = []
-    emit('save', buildContent({ generated_images: [] }))
-
-    const res = await fetch('/api/images/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }))
-      throw new Error(typeof err.error === 'string' ? err.error : (err.error?.message || res.statusText))
-    }
-    const data = await res.json()
-    if (data.data && Array.isArray(data.data)) {
-      for (let i = 0; i < data.data.length; i++) {
-        const asset = data.data[i]
-        generatedImages.value.push({
-          id: asset.id || Date.now() + i,
-          asset_id: asset.id,
-          name: asset.filename,
-          url: asset.url || asset.b64_json || '',
-          size: asset.size,
-          width: asset.width,
-          height: asset.height,
-        })
-      }
-    }
-    emit('save', buildContent({ generated_images: generatedImages.value }))
-    if (props.node?.id && Array.isArray(data.data) && data.data.length > 0) {
-      emit('generated', { sourceNodeId: props.node.id, assets: data.data })
-    }
-  } catch (e: any) {
-    prompt.value = prompt.value + '\n\n**错误:** ' + (e.message || '未知错误')
-    promptHtml.value = prompt.value
-    if (editableRef.value) editableRef.value.textContent = prompt.value
-  } finally { loading.value = false }
+  const existing: any = {}
+  try { if (node.content) Object.assign(existing, JSON.parse(node.content)) } catch {}
+  emit('save', {
+    nodeId: node.id,
+    content: buildContent({ generated_images: existing.generated_images || generatedImages.value }),
+  })
+  await startImageGeneration({
+    taskId: `task_${crypto.randomUUID()}`,
+    canvasId: node.canvas_id,
+    nodeId: node.id,
+    profile: selectedModel.value,
+    prompt: requestPrompt,
+    count: selectedCount.value,
+    aspectRatio: selectedRatio.value,
+    imageSize: selectedResolution.value,
+  })
 }
 
 watch(modalOpen, async (v) => {
@@ -393,11 +368,12 @@ watch(modalOpen, async (v) => {
             <svg class="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-white/70" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </div>
         </div>
-        <button data-testid="generate-image" class="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-neutral-900 hover:bg-neutral-200 transition-colors disabled:opacity-50" title="生成图片" aria-label="生成图片" :disabled="loading" @pointerdown.stop.prevent="generate" @click.stop.prevent="generate">
+        <button data-testid="generate-image" class="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-neutral-900 hover:bg-neutral-200 transition-colors disabled:opacity-50" title="生成图片" aria-label="生成图片" :disabled="loading" @pointerdown.stop @click.stop="generate">
           <svg v-if="!loading" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
           <span v-else class="loading loading-spinner loading-xs" />
         </button>
       </div>
+      <div v-if="generationError" data-testid="image-generation-error" class="mt-2 px-1 text-[11px] text-red-300 break-words">{{ generationError }}</div>
     </div>
   </div>
 
@@ -432,7 +408,7 @@ watch(modalOpen, async (v) => {
             <span class="text-[10px] text-white/30">预设</span>
             <select v-model="selectedPreset" @change="applyPreset" class="appearance-none bg-white/5 border border-white/10 rounded text-xs text-white/50 pl-1.5 pr-4 py-1.5"><option value="" class="bg-neutral-800 text-white/40">预设</option><optgroup v-for="cat in presetCategories" :key="cat" :label="cat"><option v-for="pr in presets.filter(p => p.category === cat)" :key="pr.id" :value="pr.id" class="bg-neutral-800 text-white">{{ pr.name }}</option></optgroup></select>
           </div>
-          <button class="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-neutral-900 hover:bg-neutral-200 disabled:opacity-50" title="生成图片" aria-label="生成图片" :disabled="loading" @pointerdown.stop.prevent="generate" @click.stop.prevent="generate">
+          <button class="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-neutral-900 hover:bg-neutral-200 disabled:opacity-50" title="生成图片" aria-label="生成图片" :disabled="loading" @pointerdown.stop @click.stop="generate">
             <svg v-if="!loading" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
             <span v-else class="loading loading-spinner loading-xs" />
           </button>

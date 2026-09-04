@@ -387,8 +387,12 @@ function closeConnectMenu() {
 const showScriptEditor = ref(false)
 const showDirectorEditor = ref(false)
 
-function onPanelSave(content: string) {
-  emit('save-panel', content)
+function onPanelSave(payload: string | { nodeId: string; content: string }) {
+  if (typeof payload === 'string') {
+    emit('save-panel', payload)
+    return
+  }
+  emit('save-node-content', payload.nodeId, payload.content)
 }
 </script>
 

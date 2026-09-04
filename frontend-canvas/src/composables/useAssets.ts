@@ -8,8 +8,8 @@ export type AssetCategory = typeof ASSET_CATEGORIES[number]
 const assets = ref<Asset[]>([])
 const loaded = ref(false)
 
-async function loadAssets() {
-  if (loaded.value) return
+async function loadAssets(force = false) {
+  if (loaded.value && !force) return
   try {
     assets.value = await fetchAssets()
     loaded.value = true

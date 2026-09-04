@@ -12,6 +12,7 @@ import { useEdges } from './composables/useEdges'
 import { useHistory } from './composables/useHistory'
 import { useAssets } from './composables/useAssets'
 import { useNodeConfigs } from './composables/useNodeConfigs'
+import { useImageGenerationTasks, type GeneratedImageAsset, type ImageGenerationEvent } from './composables/useImageGenerationTasks'
 import type { Node as CanvasNode } from './types'
 import type { Asset } from './types'
 import { isSupportedCanvasImage, staggerCanvasPoint } from './utils/canvasCoordinates'
@@ -75,6 +76,8 @@ const {
 const { canUndo, canRedo, push: pushHistory, undo, redo } = useHistory(nodes, edges)
 
 const { assets, loadAssets, addAsset, setCategory: setAssetCategory, removeAsset } = useAssets()
+const { onImageGenerationEvent } = useImageGenerationTasks()
+const stopImageGenerationEvents = onImageGenerationEvent(handleImageGenerationEvent)
 // 进入画布即预加载资产,避免资产节点 picker 首次打开显示"暂无资产"(之前只有打开资产库面板才触发加载)
 loadAssets()
 
@@ -394,6 +397,7 @@ onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown)
   document.removeEventListener('paste', onPaste as any)
   window.removeEventListener('focus', loadConfigs)
+  stopImageGenerationEvents()
 })
 
 function handleAddNode(type: string) {
@@ -441,10 +445,38 @@ interface GeneratedAssetResult {
   height: number
 }
 
+function generatedNodeContent(node: CanvasNode, generatedAssets: GeneratedImageAsset[]) {
+  let current: Record<string, any> = {}
+  try { current = JSON.parse(node.content || '{}') } catch {}
+  return JSON.stringify({
+    ...current,
+    generated_images: generatedAssets.map(asset => ({
+      id: asset.id,
+      asset_id: asset.id,
+      name: asset.filename,
+      url: asset.url,
+      size: asset.size,
+      width: asset.width,
+      height: asset.height,
+      mime_type: asset.mime_type,
+    })),
+  })
+}
+
+async function handleImageGenerationEvent(event: ImageGenerationEvent) {
+  if (event.type !== 'completed') return
+  const source = nodes.value.find(node => node.id === event.request.nodeId)
+  if (!source) return
+  await updateNodeContent(source.id, generatedNodeContent(source, event.assets))
+  await handleGeneratedAssets({ sourceNodeId: source.id, assets: event.assets })
+}
+
 async function handleGeneratedAssets(payload: { sourceNodeId: string; assets: GeneratedAssetResult[] }) {
   const src = nodes.value.find(n => n.id === payload.sourceNodeId)
   if (!src || payload.assets.length === 0) return
 
+  const selectionBefore = [...selectedNodeIds.value]
+  const createdNodeIds: string[] = []
   pushHistory()
   const nodeWidth = 320
   const nodeHeight = 300
@@ -456,16 +488,32 @@ async function handleGeneratedAssets(payload: { sourceNodeId: string; assets: Ge
 
   for (let i = 0; i < payload.assets.length; i++) {
     const asset = payload.assets[i]
+    const alreadyRendered = nodes.value.some(node => {
+      if (node.node_type !== 'asset') return false
+      try {
+        const content = JSON.parse(node.content || '{}')
+        return content.parent_generation_node_id === payload.sourceNodeId && content.asset_id === asset.id
+      } catch { return false }
+    })
+    if (alreadyRendered) continue
     const col = i % columns
     const row = Math.floor(i / columns)
     const centerX = startLeft + col * (nodeWidth + gap) + nodeWidth / 2
     const centerY = startTop + row * (nodeHeight + gap) + nodeHeight / 2
     const node = await createAssetImageNode(asset as Asset, centerX, centerY, payload.sourceNodeId)
     if (!node) continue
+    createdNodeIds.push(node.id)
     await addEdge(payload.sourceNodeId, node.id)
-    selectNode(payload.sourceNodeId)
   }
-  await loadAssets()
+  await loadAssets(true)
+
+  // addNode selects every generated Asset node. Restore the user's prior selection
+  // only when it still points at one of those automatically selected results.
+  if (selectedNodeId.value && createdNodeIds.includes(selectedNodeId.value)) {
+    const restorable = selectionBefore.filter(id => nodes.value.some(node => node.id === id))
+    selectNode(restorable[0] || null)
+    for (const id of restorable.slice(1)) selectNode(id, true)
+  }
 }
 
 async function handleReferenceAssetsUploaded(payload: { targetNodeId: string; assets: Asset[] }) {

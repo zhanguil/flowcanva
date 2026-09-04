@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import { marked } from 'marked'
 import { uploadAsset } from '../api'
 import { ASSET_CATEGORIES } from '../composables/useAssets'
+import { useImageGenerationTasks } from '../composables/useImageGenerationTasks'
 import 'pannellum'
 import 'pannellum/build/pannellum.css'
 
@@ -19,6 +20,9 @@ const props = defineProps<{
   snapTarget: { nodeId: string; dir: string } | null
   assets: any[]
 }>()
+
+const { tasks: imageGenerationTasks } = useImageGenerationTasks()
+const imageGenerationTask = computed(() => imageGenerationTasks[props.node.id])
 
 const emit = defineEmits<{
   (e: 'select', event?: PointerEvent): void
@@ -637,7 +641,10 @@ onMounted(() => {
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="shrink-0 text-cyan-300/70">
           <path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8L12 3z"/>
         </svg>
-        <span class="truncate text-[11px]">连接参考图，在下方设置提示词并生成</span>
+        <span v-if="imageGenerationTask?.status === 'running'" class="loading loading-spinner loading-xs shrink-0 text-cyan-300" />
+        <span class="truncate text-[11px]">
+          {{ imageGenerationTask?.status === 'running' ? '正在生成，切换节点不会中断任务' : imageGenerationTask?.status === 'failed' ? `生成失败：${imageGenerationTask.error}` : '连接参考图，在下方设置提示词并生成' }}
+        </span>
       </div>
 
       <!-- 视频节点 -->
