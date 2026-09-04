@@ -84,7 +84,7 @@
 1. 从 [Releases](./releases) 下载最新 `flowcanva.zip`
 2. 解压到任意目录
 3. 双击 `flowcanva.exe`
-4. 浏览器自动打开 `http://localhost:6789`
+4. 浏览器自动打开 `http://127.0.0.1:6789`
 
 > 无需安装 Go / Node.js / Python，一个 exe 全部搞定。
 
@@ -100,6 +100,16 @@
 | 统一入口 (后端) | `:6789` |
 | 管理台 (Vite HMR) | `:5174` |
 | 画布 (Vite HMR) | `:5173` |
+
+开发服务器默认监听 `0.0.0.0`。同一局域网内的电脑使用 `http://<本机局域网IPv4>:6789` 访问统一入口；浏览器中的 API、上传资源与 AI 请求全部使用同源相对地址。
+
+如 Windows 防火墙尚未放行统一入口，请在管理员 PowerShell 中执行：
+
+```powershell
+New-NetFirewallRule -DisplayName "FlowCanva LAN TCP 6789" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 6789 -Profile Private,Public -RemoteAddress LocalSubnet
+```
+
+正常使用统一入口不需要开放 `5173`、`5174`；只有需要让其他电脑直接访问 Vite 调试端口时，才另行放行这两个端口。
 
 ## 📦 一键发布构建
 
@@ -154,7 +164,7 @@ flowcanva/
 
 ### 配置方式
 
-启动后访问管理台（`http://localhost:6789`），每个节点类型页面可独立配置：
+启动后访问管理台（`http://127.0.0.1:6789` 或局域网地址），每个节点类型页面可独立配置：
 
 - **模型**：选择预设或自定义模型名
 - **渠道**：OpenAI / DeepSeek / NXFL / 自定义
@@ -183,11 +193,14 @@ flowcanva/
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `PORT` | `:6789` | 服务端口 |
+| `SERVER_HOST` | `0.0.0.0` | 后端监听地址 |
+| `PORT` | `6789` | 服务端口 |
 | `DB_PATH` | `./data.db` | SQLite 数据库路径 |
 | `DEV_MODE` | `false` | 开发模式 (反向代理前端 dev server) |
 | `EMBEDDED` | `false` | 嵌入模式 (从 exe 内置 FS 提供静态文件) |
 | `LOG_LEVEL` | `info` | 日志级别 (debug/info) |
+| `VITE_HOST` | `0.0.0.0` | Vite 开发/预览服务器监听地址 |
+| `VITE_API_TARGET` | 本机 `6789` | Vite 服务端代理目标，不会下发为浏览器 API Base URL |
 
 ## 💬 交流反馈
 

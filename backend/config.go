@@ -3,11 +3,13 @@ package main
 import (
 	"bufio"
 	"log/slog"
+	"net"
 	"os"
 	"strings"
 )
 
 type Config struct {
+	Host                string
 	Port                string
 	DBPath              string
 	DevMode             bool
@@ -33,7 +35,8 @@ func loadConfig() Config {
 		embedded = embedHasContent()
 	}
 	return Config{
-		Port:                envOrDefault("PORT", ":6789"),
+		Host:                envOrDefault("SERVER_HOST", "0.0.0.0"),
+		Port:                envOrDefault("PORT", "6789"),
 		DBPath:              envOrDefault("DB_PATH", "./data.db"),
 		DevMode:             os.Getenv("DEV_MODE") == "true",
 		Embedded:            embedded,
@@ -50,6 +53,19 @@ func loadConfig() Config {
 		ImageModelEdit:      envOrDefault("IMAGE_MODEL_EDIT", "gpt-image-2"),
 		ImageProvider:       envOrDefault("IMAGE_PROVIDER", "vectorengine"),
 	}
+}
+
+func (c Config) ListenAddress() string {
+	host := strings.TrimSpace(c.Host)
+	if host == "" {
+		host = "0.0.0.0"
+	}
+	port := strings.TrimPrefix(strings.TrimSpace(c.Port), ":")
+	return net.JoinHostPort(host, port)
+}
+
+func (c Config) PortNumber() string {
+	return strings.TrimPrefix(strings.TrimSpace(c.Port), ":")
 }
 
 func embedHasContent() bool {

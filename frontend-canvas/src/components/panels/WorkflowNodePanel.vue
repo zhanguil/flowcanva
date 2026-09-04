@@ -12,7 +12,9 @@ const emit = defineEmits<{ (e: 'save', content: string): void }>()
 
 interface Variable { name: string; value: string; type: 'image' | 'video' | 'audio' | 'text' }
 
-const serverUrl = ref('http://localhost:8188')
+// Empty means the backend uses its own local ComfyUI default. The browser never
+// connects to the workstation's loopback address directly.
+const serverUrl = ref('')
 const workflowJson = ref('')
 const name = ref('')
 const variables = ref<Variable[]>([])
@@ -61,7 +63,7 @@ async function pollResults(id: string) {
   }
   setTimeout(poll, 3000)
 }
-function reset() { serverUrl.value = 'http://localhost:8188'; workflowJson.value = ''; name.value = ''; variables.value = []; outputVars.value = ['输出']; outputs.value = [] }
+function reset() { serverUrl.value = ''; workflowJson.value = ''; name.value = ''; variables.value = []; outputVars.value = ['输出']; outputs.value = [] }
 watch(() => props.node?.id, loadContent, { immediate: true })
 
 function save() { emit('save', JSON.stringify({ serverUrl: serverUrl.value, workflowJson: workflowJson.value, name: name.value, variables: variables.value, outputVars: outputVars.value, outputs: outputs.value })) }
@@ -87,7 +89,7 @@ function loadContent() {
   if (!props.node?.content) { reset(); return }
   try {
     const d = JSON.parse(props.node.content)
-    serverUrl.value = d.serverUrl || 'http://localhost:8188'
+    serverUrl.value = d.serverUrl || ''
     workflowJson.value = d.workflowJson || ''
     name.value = d.name || ''
     variables.value = d.variables || []
@@ -241,7 +243,7 @@ function onJsonKeydown(e: KeyboardEvent) {
       </button>
       <button class="h-5 px-1.5 text-[10px] rounded bg-white/5 text-white/40 hover:text-white" @click="pasteJson">📋</button>
     </div>
-    <input v-model="serverUrl" @change="save()" placeholder="http://localhost:8188" class="w-full h-5 text-[10px] bg-white/5 border border-white/10 rounded px-1.5 text-white/50 outline-none" />
+    <input v-model="serverUrl" @change="save()" placeholder="留空使用后端本机 ComfyUI" class="w-full h-5 text-[10px] bg-white/5 border border-white/10 rounded px-1.5 text-white/50 outline-none" />
     <div class="flex items-center gap-1 text-[9px] text-white/25">
       <span>{{ variables.length }} 入</span><span>·</span><span>{{ outputVars.length }} 出</span><span class="text-white/15 ml-auto cursor-pointer hover:text-white/40" @click="fullscreen=true">高级 ⛶</span>
     </div>

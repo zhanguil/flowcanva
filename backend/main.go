@@ -13,7 +13,7 @@ func main() {
 	slog.SetDefault(logger)
 
 	logger.Info("starting server",
-		"port", cfg.Port,
+		"listen_address", cfg.ListenAddress(),
 		"dev_mode", cfg.DevMode,
 		"db_path", cfg.DBPath,
 	)
@@ -44,18 +44,18 @@ func main() {
 	}
 	r := setupRouter(h, cfg)
 
-	logger.Info("server ready", "port", cfg.Port)
+	logger.Info("server ready", "listen_address", cfg.ListenAddress())
 
 	if cfg.Embedded {
 		go func() {
 			time.Sleep(800 * time.Millisecond)
-			url := "http://localhost" + cfg.Port + "/canvas"
+			url := "http://127.0.0.1:" + cfg.PortNumber() + "/canvas"
 			logger.Info("opening browser", "url", url)
 			openBrowser(url)
 		}()
 	}
 
-	if err := r.Run(cfg.Port); err != nil {
+	if err := r.Run(cfg.ListenAddress()); err != nil {
 		logger.Error("server failed", "error", err)
 		panic(err)
 	}
