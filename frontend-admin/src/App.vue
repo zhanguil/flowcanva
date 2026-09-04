@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const CANVAS_APP_URL = import.meta.env.DEV ? '/canvas' : '/canvas'
+const CANVAS_APP_URL = '/canvas/'
 </script>
 
 <template>

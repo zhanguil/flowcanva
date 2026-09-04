@@ -85,6 +85,16 @@ func setupRouter(h *Handler, cfg Config) *gin.Engine {
 		canvasProxy := httputil.NewSingleHostReverseProxy(canvasURL)
 
 		r.NoRoute(func(c *gin.Context) {
+			// Vite's canvas base is /canvas/. Keep this inside NoRoute so Gin's
+			// automatic trailing-slash redirect cannot create a redirect loop.
+			if c.Request.URL.Path == "/canvas" {
+				target := "/canvas/"
+				if c.Request.URL.RawQuery != "" {
+					target += "?" + c.Request.URL.RawQuery
+				}
+				c.Redirect(http.StatusTemporaryRedirect, target)
+				return
+			}
 			if strings.HasPrefix(c.Request.URL.Path, "/canvas") {
 				canvasProxy.ServeHTTP(c.Writer, c.Request)
 				return

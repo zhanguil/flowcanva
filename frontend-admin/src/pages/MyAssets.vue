@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { fetchCanvases, createCanvas, deleteCanvas, renameCanvas } from '../api'
 import type { Canvas } from '../types'
 
-const CANVAS_APP_URL = '/canvas'
+const CANVAS_APP_URL = '/canvas/'
 const PAGE_SIZE = 20
 
 const canvases = ref<Canvas[]>([])
