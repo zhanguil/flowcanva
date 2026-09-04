@@ -5,6 +5,7 @@ import MentionDropdown from '../MentionDropdown.vue'
 import type { ResolvedNodeInput } from '../../utils/nodeInputResolver'
 import { useAssets } from '../../composables/useAssets'
 import { useImageGenerationTasks } from '../../composables/useImageGenerationTasks'
+import { createGenerationTaskId } from '../../utils/generationTaskId'
 
 const props = defineProps<{
   node: Node | null
@@ -271,7 +272,7 @@ async function generate() {
     content: buildContent({ generated_images: existing.generated_images || generatedImages.value }),
   })
   await startImageGeneration({
-    taskId: `task_${crypto.randomUUID()}`,
+    taskId: createGenerationTaskId(),
     canvasId: node.canvas_id,
     nodeId: node.id,
     profile: selectedModel.value,
