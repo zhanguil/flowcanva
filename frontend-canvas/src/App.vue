@@ -230,6 +230,7 @@ function assetNodeContent(asset: Asset, parentGenerationNodeId = '') {
     mime_type: asset.mime_type,
     width: asset.width,
     height: asset.height,
+    origin: parentGenerationNodeId ? 'generated' : 'uploaded',
     ...(parentGenerationNodeId ? { parent_generation_node_id: parentGenerationNodeId } : {}),
   })
 }
@@ -516,15 +517,26 @@ async function handleGeneratedAssets(payload: { sourceNodeId: string; assets: Ge
   }
 }
 
-async function handleReferenceAssetsUploaded(payload: { targetNodeId: string; assets: Asset[] }) {
+async function handleReferenceAssetsUploaded(payload: { targetNodeId: string; assets: Asset[]; onComplete?: (error?: string) => void }) {
   const target = nodes.value.find(node => node.id === payload.targetNodeId)
-  if (!target || payload.assets.length === 0) return
-  pushHistory()
-  for (let index = 0; index < payload.assets.length; index++) {
-    const centerX = target.x - 360 - (index % 2) * 340
-    const centerY = target.y + 150 + Math.floor(index / 2) * 320
-    const referenceNode = await createAssetImageNode(payload.assets[index], centerX, centerY)
-    if (referenceNode) await addEdge(referenceNode.id, target.id)
+  if (!target || payload.assets.length === 0) { payload.onComplete?.('生成节点已不存在'); return }
+  const createdIds: string[] = []
+  try {
+    pushHistory()
+    for (let index = 0; index < payload.assets.length; index++) {
+      const centerX = target.x - 360 - (index % 2) * 340
+      const centerY = target.y + 150 + Math.floor(index / 2) * 320
+      const referenceNode = await createAssetImageNode(payload.assets[index], centerX, centerY)
+      if (referenceNode) {
+        createdIds.push(referenceNode.id)
+        await addEdge(referenceNode.id, target.id)
+      }
+    }
+    payload.onComplete?.()
+  } catch {
+    payload.onComplete?.('参考图片已上传，但连接失败，请在画布上重新连接')
+  } finally {
+    if (selectedNodeId.value && createdIds.includes(selectedNodeId.value)) selectNode(target.id)
   }
 }
 
@@ -795,6 +807,7 @@ async function handleSavePanel(content: string) {
       :node-z-indices="nodeZIndices"
       :assets="assets"
       :snap-to-grid="snapToGrid"
+      :dock-open="!!dockTab"
       @select="handleCanvasSelect"
       @move-node="handleMoveNode"
       @resize-node="handleResizeNode"

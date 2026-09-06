@@ -19,6 +19,7 @@ export interface ImageGenerationRequest {
   count: number
   aspectRatio: string
   imageSize: string
+  referenceImages: string[]
 }
 
 export interface ImageGenerationTaskState {
@@ -68,8 +69,8 @@ async function startImageGeneration(request: ImageGenerationRequest) {
         n: request.count,
         aspect_ratio: request.aspectRatio,
         image_size: request.imageSize,
-        // Incoming edge references are resolved authoritatively by the backend.
-        reference_images: [],
+        reference_images: [...new Set(request.referenceImages)],
+        reference_mode: 'explicit',
       }),
     })
     if (!response.ok) {

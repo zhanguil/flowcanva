@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { imageNodeSize } from '../utils/imageOptions'
+import { isSupportedCanvasImage } from '../utils/canvasCoordinates'
 import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import { marked } from 'marked'
 import { uploadAsset } from '../api'
@@ -168,7 +170,10 @@ function onAssetDragOver(e: DragEvent) {
 }
 
 function onAssetDrop(e: DragEvent) {
+  // Image drops are handled once by the canvas importer, including multi-file drops.
+  if (Array.from(e.dataTransfer?.files || []).some(isSupportedCanvasImage)) return
   e.preventDefault()
+  e.stopPropagation()
   const file = e.dataTransfer?.files?.[0]
   if (!file) return
   uploadAsset(file).then(a => {
@@ -459,6 +464,15 @@ function isSnapHandle(dir: string) {
   return props.snapTarget?.nodeId === props.node.id && props.snapTarget?.dir === dir
 }
 
+const imageOriginLabel = computed(() => {
+  if (props.node.node_type !== 'asset') return ''
+  try {
+    const content = JSON.parse(props.node.content || '{}')
+    if (content.parent_generation_node_id || content.origin === 'generated') return 'AI生成'
+    return content.origin === 'uploaded' ? '用户上传' : ''
+  } catch { return '' }
+})
+
 const assetImageUrl = computed(() => {
   if (props.node.node_type !== 'asset' || !props.node.content) return null
   try {
@@ -612,6 +626,7 @@ onMounted(() => {
         v-html="currentTypeMeta.icon"
       />
       <span class="text-xs text-white/70 font-medium truncate">{{ currentTypeMeta.name }}</span>
+      <span v-if="imageOriginLabel" class="text-[10px] text-cyan-200/70">{{ imageOriginLabel }}</span>
     </div>
 
     <!-- 节点内容窗口 -->
@@ -713,7 +728,7 @@ onMounted(() => {
         <!-- 图片 -->
         <template v-if="assetMediaType === 'image' && assetImageUrl && !dragging">
           <img :src="assetImageUrl" class="w-full h-full object-contain"
-            @load="(e) => { const img = e.target as HTMLImageElement; const w = Math.round(img.naturalWidth * 0.25), h = Math.round(img.naturalHeight * 0.25); emit('image-loaded', { w, h: h + 34 }); }"
+            @load="(e) => { const img = e.target as HTMLImageElement; emit('image-loaded', imageNodeSize(img.naturalWidth, img.naturalHeight)); }"
           />
         </template>
         <!-- 视频 -->

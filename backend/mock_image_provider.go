@@ -7,6 +7,8 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -44,8 +46,16 @@ func (p *MockImageProvider) Generate(_ context.Context, request ImageProviderReq
 
 	count := allowImageCount(request.N)
 	images := make([]geminiInlineData, count)
+	output := p.image
+	if parts := strings.Split(request.AspectRatio, ":"); len(parts) == 2 {
+		w, _ := strconv.Atoi(parts[0])
+		h, _ := strconv.Atoi(parts[1])
+		if w > 0 && h > 0 && w <= 21 && h <= 21 {
+			output = mockImageDimensions(w*32, h*32)
+		}
+	}
 	for i := range images {
-		images[i] = p.image
+		images[i] = output
 	}
 	return images, nil
 }
@@ -59,9 +69,13 @@ func (p *MockImageProvider) Requests() []ImageProviderRequest {
 }
 
 func mockPlaceholderImage() geminiInlineData {
-	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
-	for y := 0; y < 96; y++ {
-		for x := 0; x < 96; x++ {
+	return mockImageDimensions(96, 96)
+}
+
+func mockImageDimensions(width, height int) geminiInlineData {
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
 			shade := uint8(45 + (x+y)%40)
 			img.SetRGBA(x, y, color.RGBA{R: shade, G: 105, B: 180, A: 255})
 		}

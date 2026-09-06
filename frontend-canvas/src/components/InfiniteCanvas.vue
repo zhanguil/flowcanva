@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, nextTick } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import type { Node, Edge, ViewportState } from '../types'
 import CanvasNode from './CanvasNode.vue'
 import TextNodePanel from './panels/TextNodePanel.vue'
@@ -37,6 +37,7 @@ const props = defineProps<{
   nodeZIndices: Record<string, number>
   assets: any[]
   snapToGrid: boolean
+  dockOpen?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -57,7 +58,7 @@ const emit = defineEmits<{
   (e: 'create-asset-from-screenshot', imageUrl: string, name: string): void
   (e: 'grid-split', data: { cols: number; rows: number; urls: string[] }): void
   (e: 'image-generated', payload: { sourceNodeId: string; assets: any[] }): void
-  (e: 'references-uploaded', payload: { targetNodeId: string; assets: any[] }): void
+  (e: 'references-uploaded', payload: { targetNodeId: string; assets: any[]; onComplete?: (error?: string) => void }): void
 }>()
 
 // 连线拖拽状态
@@ -89,6 +90,13 @@ const CONTENT_MARGIN = 8
 // 面板贴合选中节点底部（世界坐标）
 const PANEL_GAP = 12
 const PANEL_EXTRA_W = 160
+const windowSize = reactive({ width: window.innerWidth, height: window.innerHeight })
+function updateWindowSize() {
+  windowSize.width = window.innerWidth
+  windowSize.height = window.innerHeight
+}
+onMounted(() => window.addEventListener('resize', updateWindowSize))
+onBeforeUnmount(() => window.removeEventListener('resize', updateWindowSize))
 const panelStyle = computed(() => {
   const node = props.selectedNode
   if (!node) return { display: 'none', position: '', left: '', top: '', width: '', zIndex: '' }
@@ -100,6 +108,17 @@ const panelStyle = computed(() => {
   const y = node.y + node.height
   const w = node.width
   const pw = Math.max(w + PANEL_EXTRA_W, 320)
+  if (node.node_type === 'image') {
+    const available = windowSize.width - (props.dockOpen ? Math.min(390, windowSize.width - 56) : 0)
+    const width = Math.min(560, Math.max(240, available - 24))
+    const top = Math.max(60, Math.min(y * props.viewport.zoom + props.viewport.oy + PANEL_GAP, windowSize.height - 420))
+    return {
+      display: '', position: 'fixed',
+      left: `${Math.max(12, Math.min(x * props.viewport.zoom + props.viewport.ox, available - width - 12))}px`,
+      top: `${top}px`, width: `${width}px`, zIndex: '45',
+      maxHeight: `${windowSize.height - top - 16}px`, overflowY: 'auto',
+    }
+  }
   return {
     display: '',
     position: 'absolute',
@@ -479,6 +498,7 @@ function onPanelSave(payload: string | { nodeId: string; content: string }) {
         @dblclick.prevent
       />
 
+      <Teleport to="body" :disabled="selectedNode?.node_type !== 'image'">
       <component
         v-if="selectedNode?.node_type !== 'text' && selectedNode?.node_type !== 'asset' && selectedNode?.node_type !== 'table'"
         :is="panelMap[selectedNode?.node_type ?? '']"
@@ -494,6 +514,7 @@ function onPanelSave(payload: string | { nodeId: string; content: string }) {
         @generated="(payload: any) => emit('image-generated', payload)"
         @references-uploaded="(payload: any) => emit('references-uploaded', payload)"
       />
+      </Teleport>
     </div>
 
     <!-- 拉线空白处弹出创建节点菜单 -->

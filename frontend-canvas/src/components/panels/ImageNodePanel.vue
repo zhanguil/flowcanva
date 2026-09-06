@@ -6,6 +6,9 @@ import type { ResolvedNodeInput } from '../../utils/nodeInputResolver'
 import { useAssets } from '../../composables/useAssets'
 import { useImageGenerationTasks } from '../../composables/useImageGenerationTasks'
 import { createGenerationTaskId } from '../../utils/generationTaskId'
+import ReferenceImageCards from '../ReferenceImageCards.vue'
+import { imageRatioOptions } from '../../utils/imageOptions'
+import { useImageReferences } from '../../composables/useImageReferences'
 
 const props = defineProps<{
   node: Node | null
@@ -17,7 +20,7 @@ const emit = defineEmits<{
   (e: 'save', payload: { nodeId: string; content: string }): void
   (e: 'remove-connected-edge', edgeId: string): void
   (e: 'generated', payload: { sourceNodeId: string; assets: GeneratedAsset[] }): void
-  (e: 'references-uploaded', payload: { targetNodeId: string; assets: GeneratedAsset[] }): void
+  (e: 'references-uploaded', payload: { targetNodeId: string; assets: GeneratedAsset[]; onComplete?: (error?: string) => void }): void
 }>()
 
 interface GeneratedAsset {
@@ -39,9 +42,10 @@ const loading = computed(() => Boolean(props.node?.id && tasks[props.node.id]?.s
 const generationError = computed(() => props.node?.id ? tasks[props.node.id]?.error || '' : '')
 const modalOpen = ref(false)
 const generatedImages = ref<{ id: number | string; asset_id?: string; name?: string; url: string; size?: number; width?: number; height?: number }[]>([])
-const connectedImages = ref<Map<string, { id: number; assetId?: string; url: string }>>(new Map())
-let imageCounter = 0
-const previewImg = ref<{ id: number; url: string } | null>(null)
+const { images: allDisplayImages, excluded, remove: removeReference } = useImageReferences(() => props.nodeInputs || [], () => props.node)
+const uploading = ref(false)
+const uploadError = ref('')
+const previewImg = ref<{ id: string; url: string } | null>(null)
 
 const selectedModel = ref('fast')
 const models = [
@@ -54,7 +58,7 @@ const selectedResolution = ref('1K')
 const selectedCount = ref(1)
 const selectedPreset = ref('')
 
-const ratioOptions = ['自适应', '1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16', '5:4', '4:5', '21:9']
+const ratioOptions = imageRatioOptions
 const resolutionOptions = ['1K', '2K', '4K']
 const countOptions = [1, 2, 4]
 
@@ -67,89 +71,66 @@ const showMention = ref(false)
 const mentionFilter = ref('')
 const mentionAnchor = ref<'inline' | 'modal'>('inline')
 
-const allDisplayImages = ref<{ id: number; url: string; label: string; isRef: boolean }[]>([])
+let promptSaveTimer: ReturnType<typeof setTimeout> | null = null
+let syncingNode = false
 
-function rebuildDisplay() {
-  const list: { id: number; url: string; label: string; isRef: boolean }[] = []
-  for (const [, img] of connectedImages.value) {
-    list.push({ id: img.id, url: img.url, label: `参考${list.length + 1}`, isRef: true })
+function parseNodeContent(content: string | undefined): Record<string, any> {
+  try {
+    const parsed = JSON.parse(content || '{}')
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
   }
-  allDisplayImages.value = list
 }
 
-watch(() => props.nodeInputs, (inputs) => {
-  if (!inputs) return
-  const currentEdgeIds = new Set<string>()
-  for (const inp of inputs) {
-    const sourceImages: { url: string; assetId?: string }[] = inp.images.length > 0
-      ? inp.images
-      : [{ url: inp.data?.dataUrl || inp.data?.url || '' }]
-    for (let index = 0; index < sourceImages.length; index++) {
-      const imageUrl = sourceImages[index].url
-      if ((inp.sourceNodeType === 'asset' || inp.sourceNodeType === 'image') && imageUrl) {
-        const inputKey = `${inp.edgeId}:${index}`
-        currentEdgeIds.add(inputKey)
-        const existing = connectedImages.value.get(inputKey)
-        if (!existing) {
-          imageCounter++
-          connectedImages.value.set(inputKey, { id: imageCounter, assetId: sourceImages[index].assetId, url: imageUrl })
-        } else if (existing.url !== imageUrl) {
-          connectedImages.value.set(inputKey, { ...existing, url: imageUrl })
-        }
-      }
-    }
-  }
-  for (const [edgeId] of connectedImages.value) {
-    if (!currentEdgeIds.has(edgeId)) {
-      connectedImages.value.delete(edgeId)
-    }
-  }
-  rebuildDisplay()
-}, { immediate: true, deep: true })
+function syncGeneratedImages(content: string | undefined) {
+  const data = parseNodeContent(content)
+  generatedImages.value = Array.isArray(data.generated_images) ? data.generated_images : []
+}
 
-watch(() => props.node, (n) => {
-  if (n) {
-    try {
-      const data = n.content ? JSON.parse(n.content) : null
-      if (data) {
-        prompt.value = data.prompt || ''
-        promptHtml.value = data.promptHtml || ''
-        generatedImages.value = data.generated_images || []
-      } else {
-        prompt.value = n.content || ''
-        promptHtml.value = ''
-        generatedImages.value = []
-      }
-    } catch {
-      prompt.value = n.content || ''
-      promptHtml.value = ''
-      generatedImages.value = []
-    }
-    rebuildDisplay()
-    nextTick(() => {
-      if (editableRef.value) {
-        if (promptHtml.value) {
-          editableRef.value.innerHTML = promptHtml.value
-          syncPrompt()
-        } else {
-          editableRef.value.textContent = prompt.value
-        }
-      }
-    })
-    loadPresets()
+// The canvas store mutates a selected node in place. Watch its ID for editor
+// initialization and its content separately so async generation results reach
+// the panel without resetting an active contenteditable selection.
+watch(() => props.node?.id, () => {
+  if (promptSaveTimer) {
+    clearTimeout(promptSaveTimer)
+    promptSaveTimer = null
   }
+  const n = props.node
+  if (!n) return
+
+  const data = parseNodeContent(n.content)
+  syncingNode = true
+  prompt.value = data.prompt || (Object.keys(data).length > 0 ? '' : n.content || '')
+  promptHtml.value = data.promptHtml || ''
+  syncGeneratedImages(n.content)
+  syncingNode = false
+  selectedRatio.value = data.aspect_ratio || '1:1'
+  nextTick(() => {
+    if (!editableRef.value) return
+    if (promptHtml.value) editableRef.value.innerHTML = promptHtml.value
+    else editableRef.value.textContent = prompt.value
+  })
+  loadPresets()
 }, { immediate: true })
 
-let promptSaveTimer: ReturnType<typeof setTimeout> | null = null
+watch(() => props.node?.content, content => {
+  syncGeneratedImages(content)
+}, { immediate: true })
+
 watch(prompt, () => {
   if (promptSaveTimer) clearTimeout(promptSaveTimer)
   const nodeId = props.node?.id
-  if (!nodeId) return
-  const existing: any = {}
-  try { if (props.node?.content) Object.assign(existing, JSON.parse(props.node.content)) } catch {}
-  const content = buildContent({ generated_images: existing.generated_images || generatedImages.value })
+  if (!nodeId || syncingNode) return
   promptSaveTimer = setTimeout(() => {
-    emit('save', { nodeId, content })
+    const node = props.node
+    if (!node || node.id !== nodeId) return
+    const existing = parseNodeContent(node.content)
+    const outputs = Array.isArray(existing.generated_images)
+      ? existing.generated_images
+      : generatedImages.value
+    emit('save', { nodeId, content: buildContent({ generated_images: outputs }) })
+    promptSaveTimer = null
   }, 800)
 })
 
@@ -179,30 +160,57 @@ function syncPrompt(anchor?: 'inline' | 'modal') {
 
 function buildContent(extras: Record<string, any> = {}) {
   const outputs = Array.isArray(extras.generated_images) ? extras.generated_images : generatedImages.value
-  const referenceAssetIds = [...new Set([...connectedImages.value.values()].flatMap(image => image.assetId ? [image.assetId] : []))]
+  const referenceAssetIds = [...new Set(allDisplayImages.value.flatMap(image => image.assetId ? [image.assetId] : []))]
   const generatedAssetIds = outputs.flatMap((image: any) => image.asset_id || image.id ? [image.asset_id || image.id] : [])
   return JSON.stringify({
+    ...parseNodeContent(props.node?.content),
+    aspect_ratio: selectedRatio.value,
     prompt: prompt.value,
     promptHtml: promptHtml.value,
-    input: { reference_asset_ids: referenceAssetIds },
+    input: { reference_asset_ids: referenceAssetIds, excluded_reference_keys: excluded.value },
     output: { generated_asset_ids: generatedAssetIds },
     ...extras,
   })
 }
 
+function saveSelection() {
+  if (props.node) emit('save', { nodeId: props.node.id, content: buildContent({ generated_images: generatedImages.value }) })
+}
+
+function removeImage(id: string) {
+  removeReference(id)
+  saveSelection()
+}
+
 function onAddImage() {
+  const targetNodeId = props.node?.id
+  if (!targetNodeId || uploading.value) return
   const input = document.createElement('input')
   input.type = 'file'; input.accept = '.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'; input.multiple = true
   input.onchange = async () => {
     if (!input.files) return
-    const uploaded: GeneratedAsset[] = []
-    for (const file of Array.from(input.files)) {
-      const asset = await addAsset(file)
-      if (asset) uploaded.push(asset)
+    uploading.value = true
+    uploadError.value = ''
+    const files = Array.from(input.files)
+    if (files.length + allDisplayImages.value.length > 8) {
+      uploadError.value = '参考图片最多支持 8 张，请减少选择数量'
+      uploading.value = false
+      return
     }
-    if (props.node?.id && uploaded.length > 0) {
-      emit('references-uploaded', { targetNodeId: props.node.id, assets: uploaded })
-    }
+    try {
+      const uploaded: GeneratedAsset[] = []
+      for (const file of files) {
+        const asset = await addAsset(file)
+        if (asset) uploaded.push(asset)
+        else uploadError.value = '部分图片上传失败，请重试'
+      }
+      if (uploaded.length > 0) await new Promise<void>(resolve => {
+        emit('references-uploaded', { targetNodeId, assets: uploaded, onComplete: error => {
+          if (error) uploadError.value = error
+          resolve()
+        } })
+      })
+    } finally { uploading.value = false }
   }
   input.click()
 }
@@ -263,13 +271,17 @@ function insertMention(img: { id: any; name: string; src: string }) {
 async function generate() {
   const requestPrompt = (prompt.value || editableRef.value?.textContent || '').trim()
   const node = props.node
-  if (!node || !requestPrompt || loading.value) return
+  if (!node || !requestPrompt || loading.value || uploading.value || allDisplayImages.value.length > 8) return
   if (!prompt.value) prompt.value = requestPrompt
-  const existing: any = {}
-  try { if (node.content) Object.assign(existing, JSON.parse(node.content)) } catch {}
+  if (promptSaveTimer) {
+    clearTimeout(promptSaveTimer)
+    promptSaveTimer = null
+  }
+  const existing = parseNodeContent(node.content)
+  const outputs = Array.isArray(existing.generated_images) ? existing.generated_images : generatedImages.value
   emit('save', {
     nodeId: node.id,
-    content: buildContent({ generated_images: existing.generated_images || generatedImages.value }),
+    content: buildContent({ generated_images: outputs }),
   })
   await startImageGeneration({
     taskId: createGenerationTaskId(),
@@ -280,6 +292,7 @@ async function generate() {
     count: selectedCount.value,
     aspectRatio: selectedRatio.value,
     imageSize: selectedResolution.value,
+    referenceImages: allDisplayImages.value.map(image => image.url),
   })
 }
 
@@ -307,29 +320,21 @@ watch(modalOpen, async (v) => {
           </svg>
       </button>
 
-      <div class="flex items-center gap-1.5 mb-2">
-        <div class="shrink-0 w-10 h-10 rounded-lg border border-white/15 flex flex-col items-center justify-center text-white/40 gap-0.5">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 5V3a1 1 0 0 1 1-1h2M11 2h2a1 1 0 0 1 1 1v2M14 11v2a1 1 0 0 1-1 1h-2M5 14H3a1 1 0 0 1-1-1v-2"/></svg>
-          <span class="text-[8px] leading-none">识图</span>
-        </div>
-        <div v-for="img in allDisplayImages" :key="img.id" class="relative shrink-0 w-10 h-10 rounded-lg overflow-hidden border border-white/15 cursor-pointer hover:border-white/50 transition-colors" @click.stop="previewImg = img">
-          <img :src="img.url" class="w-full h-full object-cover" />
-          <span class="absolute bottom-0 left-0 right-0 text-[7px] text-center bg-black/60 text-white/80 truncate px-0.5 leading-tight">{{ img.label }}</span>
-        </div>
-        <button class="shrink-0 w-10 h-10 rounded-lg border border-white/15 flex flex-col items-center justify-center text-white/40 hover:text-white/60 hover:border-white/25 transition-colors gap-0.5" @click="onAddImage">
-          <span class="text-sm leading-none">+</span>
-          <span class="text-[8px] leading-none">添加</span>
-        </button>
+      <ReferenceImageCards :images="allDisplayImages" :uploading="uploading" @add="onAddImage" @remove="removeImage" @preview="previewImg = $event" />
+      <p v-if="uploadError" role="alert" class="text-xs text-red-400">{{ uploadError }}</p>
+      <p v-if="allDisplayImages.length > 8" role="alert" class="text-xs text-red-400">参考图最多支持 8 张，请删除多余图片后生成。</p>
+      <div class="mb-2 flex items-center gap-2" aria-label="电商输出比例">
+        <button v-for="ratio in ratioOptions.filter(option => option.primary)" :key="ratio.value" :data-testid="'ratio-' + ratio.value" :aria-pressed="selectedRatio === ratio.value" class="rounded-lg border px-3 py-1 text-xs" :class="selectedRatio === ratio.value ? 'border-cyan-400 bg-cyan-400/20 text-cyan-200' : 'border-white/20 text-white/60'" @click="selectedRatio = ratio.value; saveSelection()">{{ ratio.label }}</button>
       </div>
 
       <div v-if="showMention" class="relative">
-        <MentionDropdown :connected-images="allDisplayImages.map(i => ({ id: i.id, name: i.label, dataUrl: i.url }))" :filter="mentionFilter" @insert="insertMention" />
+        <MentionDropdown :connected-images="allDisplayImages.map((i, index) => ({ id: index, name: i.label, dataUrl: i.url }))" :filter="mentionFilter" @insert="insertMention" />
       </div>
 
       <div ref="editableRef" data-testid="image-prompt" contenteditable="true" class="w-full bg-transparent outline-0 text-white text-sm px-1 min-h-[60px] max-h-[100px] overflow-y-auto whitespace-pre-wrap break-words empty:before:content-['输入图片提示词...'] empty:before:text-white/30" @input="onInput" />
 
-      <div class="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-white/10">
-        <div class="flex items-center gap-1">
+      <div class="flex flex-wrap items-center justify-between gap-2 mt-3 pt-3 border-t border-white/10">
+        <div class="flex flex-wrap items-center gap-1">
           <span class="text-[10px] text-white/30 ml-1">模型</span>
           <div class="relative inline-flex items-center">
             <select v-model="selectedModel" class="text-xs bg-transparent border-0 text-white/70 hover:text-white h-6 py-0 pl-0 pr-6 w-[124px] outline-none appearance-none cursor-pointer [color-scheme:dark]">
@@ -339,8 +344,8 @@ watch(modalOpen, async (v) => {
           </div>
           <span class="text-[10px] text-white/30">比例</span>
           <div class="relative inline-flex items-center">
-            <select v-model="selectedRatio" class="text-xs bg-transparent border-0 text-white/70 hover:text-white h-6 py-0 pl-0 pr-5 w-[42px] outline-none appearance-none cursor-pointer [color-scheme:dark]">
-              <option v-for="r in ratioOptions" :key="r" :value="r" class="bg-neutral-900 text-white">{{ r }}</option>
+            <select v-model="selectedRatio" @change="saveSelection" class="text-xs bg-transparent border-0 text-white/70 hover:text-white h-6 py-0 pl-0 pr-5 w-[42px] outline-none appearance-none cursor-pointer [color-scheme:dark]">
+              <option v-for="r in ratioOptions" :key="r.value" :value="r.value" class="bg-neutral-900 text-white">{{ r.label }}</option>
             </select>
             <svg class="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-white/70" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </div>
@@ -369,7 +374,7 @@ watch(modalOpen, async (v) => {
             <svg class="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-white/70" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </div>
         </div>
-        <button data-testid="generate-image" class="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-neutral-900 hover:bg-neutral-200 transition-colors disabled:opacity-50" title="生成图片" aria-label="生成图片" :disabled="loading" @pointerdown.stop @click.stop="generate">
+        <button data-testid="generate-image" class="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-neutral-900 hover:bg-neutral-200 transition-colors disabled:opacity-50" title="生成图片" aria-label="生成图片" :disabled="loading || uploading || allDisplayImages.length > 8" @pointerdown.stop @click.stop="generate">
           <svg v-if="!loading" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
           <span v-else class="loading loading-spinner loading-xs" />
         </button>
@@ -380,7 +385,7 @@ watch(modalOpen, async (v) => {
 
   <Teleport to="body">
     <div v-if="modalOpen" class="fixed inset-0 z-[9998] flex items-center justify-center bg-black/70" @click.self="modalOpen = false">
-      <div class="bg-neutral-900 border border-white/20 rounded-2xl w-[600px] max-h-[85vh] flex flex-col shadow-xl">
+      <div class="bg-neutral-900 border border-white/20 rounded-2xl w-[600px] max-w-[calc(100vw-24px)] max-h-[85vh] flex flex-col shadow-xl">
         <div class="flex items-center justify-between px-4 py-3 border-b border-white/10">
           <span class="text-sm font-medium text-white/70">图片生成</span>
           <button class="btn btn-xs btn-square bg-white/10 border border-white/30 text-white hover:bg-white/20" @click="modalOpen = false">
@@ -389,19 +394,18 @@ watch(modalOpen, async (v) => {
         </div>
         <div class="flex-1 overflow-y-auto p-5 space-y-3">
           <div ref="modalContentEditable" contenteditable="true" class="w-full bg-transparent outline-0 text-white text-sm min-h-[120px] overflow-y-auto whitespace-pre-wrap break-words empty:before:content-['输入图片提示词...'] empty:before:text-white/30" @input="onModalInput" />
-          <div v-if="allDisplayImages.length > 0" class="flex flex-wrap gap-2">
-            <div v-for="img in allDisplayImages" :key="img.id" class="relative w-16 h-16 rounded-lg overflow-hidden border border-white/15 cursor-pointer" @click="previewImg = img">
-              <img :src="img.url" class="w-full h-full object-cover" />
-              <span class="absolute bottom-0 left-0 right-0 text-[7px] text-center bg-black/60 text-white/80 truncate px-0.5">{{ img.label }}</span>
-            </div>
-          </div>
+          <ReferenceImageCards :images="allDisplayImages" :uploading="uploading" @add="onAddImage" @remove="removeImage" @preview="previewImg = $event" />
+      <p v-if="uploadError" role="alert" class="text-xs text-red-400">{{ uploadError }}</p>
+      <div class="mb-2 flex items-center gap-2" aria-label="电商输出比例">
+        <button v-for="ratio in ratioOptions.filter(option => option.primary)" :key="ratio.value" :data-testid="'ratio-' + ratio.value" :aria-pressed="selectedRatio === ratio.value" class="rounded-lg border px-3 py-1 text-xs" :class="selectedRatio === ratio.value ? 'border-cyan-400 bg-cyan-400/20 text-cyan-200' : 'border-white/20 text-white/60'" @click="selectedRatio = ratio.value; saveSelection()">{{ ratio.label }}</button>
+      </div>
         </div>
-        <div class="flex items-center justify-between gap-2 px-4 py-3 border-t border-white/10">
-          <div class="flex items-center gap-1">
+        <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t border-white/10">
+          <div class="flex flex-wrap items-center gap-1">
             <span class="text-[10px] text-white/30">模型</span>
             <select v-model="selectedModel" class="appearance-none bg-white/5 border border-white/10 rounded text-xs text-white/80 pl-1.5 pr-4 py-1.5"><option v-for="m in models" :key="m.value" :value="m.value" class="bg-neutral-800">{{ m.label }}</option></select>
             <span class="text-[10px] text-white/30">比例</span>
-            <select v-model="selectedRatio" class="appearance-none bg-white/5 border border-white/10 rounded text-xs text-white/80 pl-1.5 pr-3 py-1.5"><option v-for="r in ratioOptions" :key="r" :value="r" class="bg-neutral-800">{{ r }}</option></select>
+            <select v-model="selectedRatio" @change="saveSelection" class="appearance-none bg-white/5 border border-white/10 rounded text-xs text-white/80 pl-1.5 pr-3 py-1.5"><option v-for="r in ratioOptions" :key="r.value" :value="r.value" class="bg-neutral-800">{{ r.label }}</option></select>
             <span class="text-[10px] text-white/30">像素</span>
             <select v-model="selectedResolution" class="appearance-none bg-white/5 border border-white/10 rounded text-xs text-white/80 pl-1.5 pr-3 py-1.5"><option v-for="r in resolutionOptions" :key="r" :value="r" class="bg-neutral-800">{{ r }}</option></select>
             <span class="text-[10px] text-white/30">数量</span>
@@ -409,7 +413,7 @@ watch(modalOpen, async (v) => {
             <span class="text-[10px] text-white/30">预设</span>
             <select v-model="selectedPreset" @change="applyPreset" class="appearance-none bg-white/5 border border-white/10 rounded text-xs text-white/50 pl-1.5 pr-4 py-1.5"><option value="" class="bg-neutral-800 text-white/40">预设</option><optgroup v-for="cat in presetCategories" :key="cat" :label="cat"><option v-for="pr in presets.filter(p => p.category === cat)" :key="pr.id" :value="pr.id" class="bg-neutral-800 text-white">{{ pr.name }}</option></optgroup></select>
           </div>
-          <button class="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-neutral-900 hover:bg-neutral-200 disabled:opacity-50" title="生成图片" aria-label="生成图片" :disabled="loading" @pointerdown.stop @click.stop="generate">
+          <button class="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-neutral-900 hover:bg-neutral-200 disabled:opacity-50" title="生成图片" aria-label="生成图片" :disabled="loading || uploading || allDisplayImages.length > 8" @pointerdown.stop @click.stop="generate">
             <svg v-if="!loading" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
             <span v-else class="loading loading-spinner loading-xs" />
           </button>

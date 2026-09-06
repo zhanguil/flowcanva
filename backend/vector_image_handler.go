@@ -30,6 +30,7 @@ type VectorImageRequest struct {
 	ImageSize       string   `json:"image_size"`
 	N               int      `json:"n"`
 	ReferenceImages []string `json:"reference_images"`
+	ReferenceMode   string   `json:"reference_mode"`
 }
 
 type geminiGenerateRequest struct {
@@ -99,7 +100,13 @@ func (h *Handler) GenerateImage(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	req.ReferenceImages = mergeReferenceImages(resolved.Images, req.ReferenceImages)
+	// New clients send the exact panel selection, including an empty selection.
+	// Legacy clients still resolve their references from incoming graph edges.
+	if req.ReferenceMode == "explicit" {
+		req.ReferenceImages = mergeReferenceImages(nil, req.ReferenceImages)
+	} else {
+		req.ReferenceImages = mergeReferenceImages(resolved.Images, req.ReferenceImages)
+	}
 	if len(req.ReferenceImages) > maxReferenceImages {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("参考图片最多支持 %d 张", maxReferenceImages)})
 		return

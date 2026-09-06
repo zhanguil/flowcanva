@@ -4,6 +4,7 @@ export interface ResolvedNodeImage {
   assetId?: string
   name?: string
   url: string
+  origin?: 'uploaded' | 'generated'
 }
 
 export interface ResolvedNodeInput {
@@ -54,8 +55,9 @@ function resolveNodeOutput(node: Node) {
   }
 
   if (node.node_type === 'asset') {
-    const url = typeof content.url === 'string' ? content.url : ''
-    const image = url ? { assetId: content.asset_id, name: content.name, url } : null
+    if (content.mediaType === 'video' || content.mediaType === 'audio' || /^(video|audio)\//.test(content.mime_type || '')) return empty
+    const url = content.url || content.dataUrl || ''
+    const image: ResolvedNodeImage | null = url ? { assetId: content.asset_id, name: content.name, url, origin: content.parent_generation_node_id ? 'generated' : content.origin } : null
     return {
       ...empty,
       data: content,
@@ -67,7 +69,7 @@ function resolveNodeOutput(node: Node) {
   if (node.node_type === 'image') {
     const generated = Array.isArray(content.generated_images) ? content.generated_images : []
     const images = generated
-      .map((item: any) => ({ assetId: item?.asset_id, name: item?.name, url: item?.url || '' }))
+      .map((item: any) => ({ assetId: item?.asset_id, name: item?.name, url: item?.url || '', origin: 'generated' as const }))
       .filter((item: ResolvedNodeImage) => Boolean(item.url))
     return {
       ...empty,
