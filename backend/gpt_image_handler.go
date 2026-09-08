@@ -37,6 +37,8 @@ func (h *Handler) generateGPTImage(c *gin.Context, req VectorImageRequest, profi
 	}
 
 	model := h.imageModelForProfile(profile)
+	providerRequest := req
+	providerRequest.Prompt = productProviderPrompt(req)
 	count := allowImageCount(req.N)
 	size := gptImageSize(req.AspectRatio, req.ImageSize)
 
@@ -46,13 +48,13 @@ func (h *Handler) generateGPTImage(c *gin.Context, req VectorImageRequest, profi
 	)
 	if len(req.ReferenceImages) == 0 {
 		payload := gptImageGenerationRequest{
-			Model: model, Prompt: req.Prompt, N: count, Size: size, Format: "png", Quality: "auto",
+			Model: model, Prompt: providerRequest.Prompt, N: count, Size: size, Format: "png", Quality: "auto",
 		}
 		responseBody, err = h.vectorEngine.PostJSON(c.Request.Context(), "/v1/images/generations", payload)
 	} else {
 		var body bytes.Buffer
 		writer := multipart.NewWriter(&body)
-		if formErr := writeGPTImageEditForm(writer, req, model, count, size, h.assetUploadDir()); formErr != nil {
+		if formErr := writeGPTImageEditForm(writer, providerRequest, model, count, size, h.assetUploadDir()); formErr != nil {
 			_ = writer.Close()
 			c.JSON(http.StatusBadRequest, gin.H{"error": formErr.Error()})
 			return
@@ -86,6 +88,7 @@ func (h *Handler) generateGPTImage(c *gin.Context, req VectorImageRequest, profi
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成图片保存失败"})
 		return
 	}
+	attachProductGeneration(req, model, assets)
 	if err := h.persistNodeGeneratedOutputs(req.CanvasID, req.NodeID, assets); err != nil {
 		h.log.Error("persist generation node output failed", "task_id", req.TaskID, "node_id", req.NodeID, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生图节点输出保存失败"})

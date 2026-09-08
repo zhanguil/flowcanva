@@ -122,7 +122,7 @@ test('panel multi-upload waits for edges and a generated batch supports individu
   await (await chooser).setFiles(['产品.png', '场景.png'].map(name => ({ name, mimeType: 'image/png', buffer })))
   await expect(page.getByTestId('reference-card')).toHaveCount(2)
   await expect(page.getByTestId('generate-image')).toBeEnabled()
-  await page.getByTestId('image-node-panel').locator('select').nth(3).selectOption('2')
+  await page.getByTestId('image-node-panel').getByLabel('生成数量').selectOption('2')
   const generated = page.waitForResponse(r => r.url().includes('/api/images/generate') && r.request().method() === 'POST')
   await page.getByTestId('generate-image').click()
   const result = await generated

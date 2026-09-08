@@ -16,6 +16,10 @@ import { useImageGenerationTasks, type GeneratedImageAsset, type ImageGeneration
 import type { Node as CanvasNode } from './types'
 import type { Asset } from './types'
 import { isSupportedCanvasImage, staggerCanvasPoint } from './utils/canvasCoordinates'
+import { serializeGeneratedNodeContent } from './utils/imageGenerationContent'
+import { continuationContent } from './utils/productContinuation'
+import type { GenerationType } from './types/product'
+import { useProductAssets } from './composables/useProductAssets'
 
 const consoleURL = import.meta.env.DEV ? '/' : '/'
 const isDev = import.meta.env.DEV
@@ -222,6 +226,7 @@ async function onPaste(e: ClipboardEvent) {
 }
 
 function assetNodeContent(asset: Asset, parentGenerationNodeId = '') {
+  const generation = (asset as GeneratedImageAsset).generation || useProductAssets().findGenerationForAsset(asset.id)
   return JSON.stringify({
     asset_id: asset.id,
     url: asset.url,
@@ -231,6 +236,7 @@ function assetNodeContent(asset: Asset, parentGenerationNodeId = '') {
     width: asset.width,
     height: asset.height,
     origin: parentGenerationNodeId ? 'generated' : 'uploaded',
+    ...(generation ? { generation, product_asset_id: generation.rootProductAssetId, product_snapshot: generation.context.product } : {}),
     ...(parentGenerationNodeId ? { parent_generation_node_id: parentGenerationNodeId } : {}),
   })
 }
@@ -413,9 +419,10 @@ function handleCanvasSelect(id: string, event?: PointerEvent) {
   selectNode(id, Boolean(event && (event.shiftKey || event.ctrlKey || event.metaKey)))
 }
 
-async function handleAddConnectedNode(type: string, wx: number, wy: number, sourceNodeId: string) {
+async function handleAddConnectedNode(type: string, wx: number, wy: number, sourceNodeId: string, generationType: GenerationType = 'custom') {
   pushHistory()
-  const node = await addNode(type as any, wx, wy)
+  const source = nodes.value.find(node => node.id === sourceNodeId)
+  const node = await addNode(type as any, wx, wy, type === 'image' ? continuationContent(source, generationType) : '')
   if (node) {
     addEdge(sourceNodeId, node.id)
   }
@@ -447,21 +454,7 @@ interface GeneratedAssetResult {
 }
 
 function generatedNodeContent(node: CanvasNode, generatedAssets: GeneratedImageAsset[]) {
-  let current: Record<string, any> = {}
-  try { current = JSON.parse(node.content || '{}') } catch {}
-  return JSON.stringify({
-    ...current,
-    generated_images: generatedAssets.map(asset => ({
-      id: asset.id,
-      asset_id: asset.id,
-      name: asset.filename,
-      url: asset.url,
-      size: asset.size,
-      width: asset.width,
-      height: asset.height,
-      mime_type: asset.mime_type,
-    })),
-  })
+  return serializeGeneratedNodeContent(node.content, generatedAssets)
 }
 
 async function handleImageGenerationEvent(event: ImageGenerationEvent) {
@@ -818,6 +811,7 @@ async function handleSavePanel(content: string) {
       @save-panel="handleSavePanel"
       @save-node-content="handleSaveNodeContent"
       @add-connected-node="handleAddConnectedNode"
+      @continue-generation="(node: CanvasNode, type: GenerationType) => handleAddConnectedNode('image', node.x + node.width + 280, node.y + 44, node.id, type)"
       @update-asset="handleUpdateAsset"
       @remove-asset="handleRemoveAsset"
       @create-asset-from-screenshot="handleCreateAssetFromScreenshot"

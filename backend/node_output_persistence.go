@@ -35,6 +35,7 @@ func (h *Handler) persistNodeGeneratedOutputs(canvasID, nodeID string, assets []
 		outputs = append(outputs, map[string]any{
 			"id": asset.ID, "asset_id": asset.ID, "name": asset.Filename, "url": asset.URL,
 			"size": asset.Size, "mime_type": asset.MimeType, "width": asset.Width, "height": asset.Height,
+			"generation": asset.Generation,
 		})
 	}
 	data["generated_images"] = outputs

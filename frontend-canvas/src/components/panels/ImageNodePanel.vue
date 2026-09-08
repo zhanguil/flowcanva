@@ -9,6 +9,10 @@ import { createGenerationTaskId } from '../../utils/generationTaskId'
 import ReferenceImageCards from '../ReferenceImageCards.vue'
 import { imageRatioOptions } from '../../utils/imageOptions'
 import { useImageReferences } from '../../composables/useImageReferences'
+import { useGenerationProduct } from '../../composables/useGenerationProduct'
+import ProductGenerationBinding from '../ProductGenerationBinding.vue'
+import { buildGenerationContext } from '../../utils/generationContext'
+import type { GenerationType, ReferenceRole } from '../../types/product'
 
 const props = defineProps<{
   node: Node | null
@@ -42,7 +46,9 @@ const loading = computed(() => Boolean(props.node?.id && tasks[props.node.id]?.s
 const generationError = computed(() => props.node?.id ? tasks[props.node.id]?.error || '' : '')
 const modalOpen = ref(false)
 const generatedImages = ref<{ id: number | string; asset_id?: string; name?: string; url: string; size?: number; width?: number; height?: number }[]>([])
-const { images: allDisplayImages, excluded, remove: removeReference } = useImageReferences(() => props.nodeInputs || [], () => props.node)
+const productBinding = useGenerationProduct(() => props.node, () => props.nodeInputs || [])
+const { images: allDisplayImages, excluded, remove: removeReference, roles, setRole, references } = useImageReferences(() => props.nodeInputs || [], () => props.node, () => productBinding.inherited.value)
+const generationType = ref<GenerationType>('custom')
 const uploading = ref(false)
 const uploadError = ref('')
 const previewImg = ref<{ id: string; url: string } | null>(null)
@@ -101,11 +107,12 @@ watch(() => props.node?.id, () => {
 
   const data = parseNodeContent(n.content)
   syncingNode = true
-  prompt.value = data.prompt || (Object.keys(data).length > 0 ? '' : n.content || '')
+  prompt.value = data.prompt || (/^\s*\{/.test(n.content || '') ? '' : n.content || '')
   promptHtml.value = data.promptHtml || ''
   syncGeneratedImages(n.content)
   syncingNode = false
   selectedRatio.value = data.aspect_ratio || '1:1'
+  generationType.value = data.generation_type || 'custom'
   nextTick(() => {
     if (!editableRef.value) return
     if (promptHtml.value) editableRef.value.innerHTML = promptHtml.value
@@ -165,9 +172,13 @@ function buildContent(extras: Record<string, any> = {}) {
   return JSON.stringify({
     ...parseNodeContent(props.node?.content),
     aspect_ratio: selectedRatio.value,
+    generation_type: generationType.value,
+    product_asset_id: productBinding.product.value?.id,
+    product_snapshot: productBinding.product.value || undefined,
+    product_references: productBinding.inherited.value,
     prompt: prompt.value,
     promptHtml: promptHtml.value,
-    input: { reference_asset_ids: referenceAssetIds, excluded_reference_keys: excluded.value },
+    input: { reference_asset_ids: referenceAssetIds, excluded_reference_keys: excluded.value, reference_roles: roles.value },
     output: { generated_asset_ids: generatedAssetIds },
     ...extras,
   })
@@ -180,6 +191,17 @@ function saveSelection() {
 function removeImage(id: string) {
   removeReference(id)
   saveSelection()
+}
+
+function changeRole(id: string, role: ReferenceRole) { setRole(id, role); saveSelection() }
+function selectProduct(id: string) {
+  if (!props.node) return
+  const product = productBinding.getProduct(id)
+  emit('save', { nodeId: props.node.id, content: buildContent({
+    product_asset_id: product?.id, product_snapshot: product,
+    product_references: product ? productBinding.getReferences(product) : [],
+    generated_images: generatedImages.value,
+  }) })
 }
 
 function onAddImage() {
@@ -271,7 +293,7 @@ function insertMention(img: { id: any; name: string; src: string }) {
 async function generate() {
   const requestPrompt = (prompt.value || editableRef.value?.textContent || '').trim()
   const node = props.node
-  if (!node || !requestPrompt || loading.value || uploading.value || allDisplayImages.value.length > 8) return
+  if (!node || !requestPrompt || loading.value || uploading.value || allDisplayImages.value.length > 8 || productBinding.error.value) return
   if (!prompt.value) prompt.value = requestPrompt
   if (promptSaveTimer) {
     clearTimeout(promptSaveTimer)
@@ -293,6 +315,11 @@ async function generate() {
     aspectRatio: selectedRatio.value,
     imageSize: selectedResolution.value,
     referenceImages: allDisplayImages.value.map(image => image.url),
+    context: buildGenerationContext(productBinding.product.value, references.value, requestPrompt, {
+      model: selectedModel.value, aspectRatio: selectedRatio.value, imageSize: selectedResolution.value,
+      count: selectedCount.value, generationType: generationType.value,
+    }),
+    parentGenerationIds: productBinding.parents.value.map(parent => parent.id),
   })
 }
 
@@ -320,7 +347,8 @@ watch(modalOpen, async (v) => {
           </svg>
       </button>
 
-      <ReferenceImageCards :images="allDisplayImages" :uploading="uploading" @add="onAddImage" @remove="removeImage" @preview="previewImg = $event" />
+      <ProductGenerationBinding :product="productBinding.product.value" :generation-type="generationType" :error="productBinding.error.value" @select="selectProduct" @type="generationType = $event; saveSelection()" />
+      <ReferenceImageCards :images="allDisplayImages" :uploading="uploading" @add="onAddImage" @remove="removeImage" @preview="previewImg = $event" @role="changeRole" />
       <p v-if="uploadError" role="alert" class="text-xs text-red-400">{{ uploadError }}</p>
       <p v-if="allDisplayImages.length > 8" role="alert" class="text-xs text-red-400">参考图最多支持 8 张，请删除多余图片后生成。</p>
       <div class="mb-2 flex items-center gap-2" aria-label="电商输出比例">
@@ -358,7 +386,7 @@ watch(modalOpen, async (v) => {
           </div>
           <span class="text-[10px] text-white/30">数量</span>
           <div class="relative inline-flex items-center">
-            <select v-model="selectedCount" class="text-xs bg-transparent border-0 text-white/70 hover:text-white h-6 py-0 pl-0 pr-5 w-[36px] outline-none appearance-none cursor-pointer [color-scheme:dark]">
+            <select v-model="selectedCount" aria-label="生成数量" class="text-xs bg-transparent border-0 text-white/70 hover:text-white h-6 py-0 pl-0 pr-5 w-[36px] outline-none appearance-none cursor-pointer [color-scheme:dark]">
               <option v-for="c in countOptions" :key="c" :value="c" class="bg-neutral-900 text-white">{{ c }}x</option>
             </select>
             <svg class="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-white/70" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
@@ -374,7 +402,7 @@ watch(modalOpen, async (v) => {
             <svg class="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-white/70" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </div>
         </div>
-        <button data-testid="generate-image" class="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-neutral-900 hover:bg-neutral-200 transition-colors disabled:opacity-50" title="生成图片" aria-label="生成图片" :disabled="loading || uploading || allDisplayImages.length > 8" @pointerdown.stop @click.stop="generate">
+        <button data-testid="generate-image" class="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-neutral-900 hover:bg-neutral-200 transition-colors disabled:opacity-50" title="生成图片" aria-label="生成图片" :disabled="loading || uploading || allDisplayImages.length > 8 || !!productBinding.error.value" @pointerdown.stop @click.stop="generate">
           <svg v-if="!loading" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
           <span v-else class="loading loading-spinner loading-xs" />
         </button>
@@ -394,7 +422,8 @@ watch(modalOpen, async (v) => {
         </div>
         <div class="flex-1 overflow-y-auto p-5 space-y-3">
           <div ref="modalContentEditable" contenteditable="true" class="w-full bg-transparent outline-0 text-white text-sm min-h-[120px] overflow-y-auto whitespace-pre-wrap break-words empty:before:content-['输入图片提示词...'] empty:before:text-white/30" @input="onModalInput" />
-          <ReferenceImageCards :images="allDisplayImages" :uploading="uploading" @add="onAddImage" @remove="removeImage" @preview="previewImg = $event" />
+          <ProductGenerationBinding :product="productBinding.product.value" :generation-type="generationType" :error="productBinding.error.value" @select="selectProduct" @type="generationType = $event; saveSelection()" />
+      <ReferenceImageCards :images="allDisplayImages" :uploading="uploading" @add="onAddImage" @remove="removeImage" @preview="previewImg = $event" @role="changeRole" />
       <p v-if="uploadError" role="alert" class="text-xs text-red-400">{{ uploadError }}</p>
       <div class="mb-2 flex items-center gap-2" aria-label="电商输出比例">
         <button v-for="ratio in ratioOptions.filter(option => option.primary)" :key="ratio.value" :data-testid="'ratio-' + ratio.value" :aria-pressed="selectedRatio === ratio.value" class="rounded-lg border px-3 py-1 text-xs" :class="selectedRatio === ratio.value ? 'border-cyan-400 bg-cyan-400/20 text-cyan-200' : 'border-white/20 text-white/60'" @click="selectedRatio = ratio.value; saveSelection()">{{ ratio.label }}</button>
@@ -409,11 +438,11 @@ watch(modalOpen, async (v) => {
             <span class="text-[10px] text-white/30">像素</span>
             <select v-model="selectedResolution" class="appearance-none bg-white/5 border border-white/10 rounded text-xs text-white/80 pl-1.5 pr-3 py-1.5"><option v-for="r in resolutionOptions" :key="r" :value="r" class="bg-neutral-800">{{ r }}</option></select>
             <span class="text-[10px] text-white/30">数量</span>
-            <select v-model="selectedCount" class="appearance-none bg-white/5 border border-white/10 rounded text-xs text-white/80 pl-1.5 pr-3 py-1.5"><option v-for="c in countOptions" :key="c" :value="c" class="bg-neutral-800">{{ c }}x</option></select>
+            <select v-model="selectedCount" aria-label="生成数量" class="appearance-none bg-white/5 border border-white/10 rounded text-xs text-white/80 pl-1.5 pr-3 py-1.5"><option v-for="c in countOptions" :key="c" :value="c" class="bg-neutral-800">{{ c }}x</option></select>
             <span class="text-[10px] text-white/30">预设</span>
             <select v-model="selectedPreset" @change="applyPreset" class="appearance-none bg-white/5 border border-white/10 rounded text-xs text-white/50 pl-1.5 pr-4 py-1.5"><option value="" class="bg-neutral-800 text-white/40">预设</option><optgroup v-for="cat in presetCategories" :key="cat" :label="cat"><option v-for="pr in presets.filter(p => p.category === cat)" :key="pr.id" :value="pr.id" class="bg-neutral-800 text-white">{{ pr.name }}</option></optgroup></select>
           </div>
-          <button class="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-neutral-900 hover:bg-neutral-200 disabled:opacity-50" title="生成图片" aria-label="生成图片" :disabled="loading || uploading || allDisplayImages.length > 8" @pointerdown.stop @click.stop="generate">
+          <button class="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-neutral-900 hover:bg-neutral-200 disabled:opacity-50" title="生成图片" aria-label="生成图片" :disabled="loading || uploading || allDisplayImages.length > 8 || !!productBinding.error.value" @pointerdown.stop @click.stop="generate">
             <svg v-if="!loading" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
             <span v-else class="loading loading-spinner loading-xs" />
           </button>

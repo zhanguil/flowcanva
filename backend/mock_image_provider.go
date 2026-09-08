@@ -13,16 +13,17 @@ import (
 )
 
 type ImageProviderRequest struct {
-	TaskID          string   `json:"task_id"`
-	CanvasID        string   `json:"canvas_id"`
-	NodeID          string   `json:"node_id"`
-	Prompt          string   `json:"prompt"`
-	Model           string   `json:"model"`
-	Profile         string   `json:"profile"`
-	AspectRatio     string   `json:"aspect_ratio"`
-	Resolution      string   `json:"resolution"`
-	N               int      `json:"n"`
-	ReferenceImages []string `json:"reference_images"`
+	TaskID            string             `json:"task_id"`
+	CanvasID          string             `json:"canvas_id"`
+	NodeID            string             `json:"node_id"`
+	Prompt            string             `json:"prompt"`
+	Model             string             `json:"model"`
+	Profile           string             `json:"profile"`
+	AspectRatio       string             `json:"aspect_ratio"`
+	Resolution        string             `json:"resolution"`
+	N                 int                `json:"n"`
+	ReferenceImages   []string           `json:"reference_images"`
+	GenerationContext *GenerationContext `json:"generation_context,omitempty"`
 }
 
 type ImageProvider interface {

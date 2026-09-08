@@ -21,16 +21,18 @@ import (
 )
 
 type VectorImageRequest struct {
-	TaskID          string   `json:"task_id"`
-	CanvasID        string   `json:"canvas_id"`
-	NodeID          string   `json:"node_id"`
-	Profile         string   `json:"profile"`
-	Prompt          string   `json:"prompt"`
-	AspectRatio     string   `json:"aspect_ratio"`
-	ImageSize       string   `json:"image_size"`
-	N               int      `json:"n"`
-	ReferenceImages []string `json:"reference_images"`
-	ReferenceMode   string   `json:"reference_mode"`
+	TaskID            string             `json:"task_id"`
+	CanvasID          string             `json:"canvas_id"`
+	NodeID            string             `json:"node_id"`
+	Profile           string             `json:"profile"`
+	Prompt            string             `json:"prompt"`
+	AspectRatio       string             `json:"aspect_ratio"`
+	ImageSize         string             `json:"image_size"`
+	N                 int                `json:"n"`
+	ReferenceImages   []string           `json:"reference_images"`
+	ReferenceMode     string             `json:"reference_mode"`
+	GenerationContext *GenerationContext `json:"generation_context,omitempty"`
+	Lineage           *GenerationLineage `json:"lineage,omitempty"`
 }
 
 type geminiGenerateRequest struct {
@@ -72,15 +74,16 @@ type geminiGenerateResponse struct {
 }
 
 type GeneratedAsset struct {
-	ID       string `json:"id"`
-	Filename string `json:"filename"`
-	URL      string `json:"url"`
-	Size     int64  `json:"size"`
-	MimeType string `json:"mime_type"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
-	Category string `json:"category"`
-	Tags     string `json:"tags"`
+	ID         string                   `json:"id"`
+	Filename   string                   `json:"filename"`
+	URL        string                   `json:"url"`
+	Size       int64                    `json:"size"`
+	MimeType   string                   `json:"mime_type"`
+	Width      int                      `json:"width"`
+	Height     int                      `json:"height"`
+	Category   string                   `json:"category"`
+	Tags       string                   `json:"tags"`
+	Generation *ProductGenerationRecord `json:"generation,omitempty"`
 }
 
 func (h *Handler) GenerateImage(c *gin.Context) {
@@ -89,12 +92,16 @@ func (h *Handler) GenerateImage(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求格式不正确"})
 		return
 	}
+	req.TaskID = ensureGenerationTaskID(req.TaskID)
+	if err := applyGenerationContext(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	req.Prompt = strings.TrimSpace(req.Prompt)
 	if req.Prompt == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "提示词不能为空"})
 		return
 	}
-	req.TaskID = ensureGenerationTaskID(req.TaskID)
 	resolved, err := h.resolveNodeInputs(req.CanvasID, req.NodeID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -132,7 +139,9 @@ func (h *Handler) GenerateImage(c *gin.Context) {
 
 func (h *Handler) generateGeminiImage(c *gin.Context, req VectorImageRequest, profile string) {
 	count := allowImageCount(req.N)
-	payload, err := buildGeminiImagePayload(req, h.assetUploadDir())
+	providerRequest := req
+	providerRequest.Prompt = productProviderPrompt(req)
+	payload, err := buildGeminiImagePayload(providerRequest, h.assetUploadDir())
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -165,6 +174,7 @@ func (h *Handler) generateGeminiImage(c *gin.Context, req VectorImageRequest, pr
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成图片保存失败"})
 		return
 	}
+	attachProductGeneration(req, h.imageModelForProfile(profile), assets)
 	if err := h.persistNodeGeneratedOutputs(req.CanvasID, req.NodeID, assets); err != nil {
 		h.log.Error("persist generation node output failed", "task_id", req.TaskID, "node_id", req.NodeID, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生图节点输出保存失败"})
@@ -176,9 +186,10 @@ func (h *Handler) generateGeminiImage(c *gin.Context, req VectorImageRequest, pr
 func (h *Handler) generateWithImageProvider(c *gin.Context, req VectorImageRequest, profile, model string) {
 	generated, err := h.imageProvider.Generate(c.Request.Context(), ImageProviderRequest{
 		TaskID: req.TaskID, CanvasID: req.CanvasID, NodeID: req.NodeID,
-		Prompt: req.Prompt, Model: model, Profile: profile,
+		Prompt: productProviderPrompt(req), Model: model, Profile: profile,
 		AspectRatio: req.AspectRatio, Resolution: req.ImageSize,
 		N: req.N, ReferenceImages: append([]string(nil), req.ReferenceImages...),
+		GenerationContext: req.GenerationContext,
 	})
 	if err != nil {
 		h.log.Error("mock image generation failed", "task_id", req.TaskID, "node_id", req.NodeID, "error", err)
@@ -191,6 +202,7 @@ func (h *Handler) generateWithImageProvider(c *gin.Context, req VectorImageReque
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成图片保存失败"})
 		return
 	}
+	attachProductGeneration(req, model, assets)
 	if err := h.persistNodeGeneratedOutputs(req.CanvasID, req.NodeID, assets); err != nil {
 		h.log.Error("persist mock generation node output failed", "task_id", req.TaskID, "node_id", req.NodeID, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生图节点输出保存失败"})

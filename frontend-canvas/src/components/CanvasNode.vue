@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { imageNodeSize } from '../utils/imageOptions'
 import { isSupportedCanvasImage } from '../utils/canvasCoordinates'
+import ProductAssetActions from './ProductAssetActions.vue'
+import type { GenerationType, ProductAsset } from '../types/product'
 import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import { marked } from 'marked'
 import { uploadAsset } from '../api'
@@ -21,6 +23,7 @@ const props = defineProps<{
   connecting: boolean
   snapTarget: { nodeId: string; dir: string } | null
   assets: any[]
+  productSelection?: Node[]
 }>()
 
 const { tasks: imageGenerationTasks } = useImageGenerationTasks()
@@ -40,6 +43,8 @@ const emit = defineEmits<{
   (e: 'edit-script'): void
   (e: 'edit-director'): void
   (e: 'grid-split', data: { cols: number; rows: number; urls: string[] }): void
+  (e: 'continue-generation', type: GenerationType): void
+  (e: 'bind-product', product: ProductAsset, nodeIds: string[]): void
 }>()
 
 // 资产节点上传
@@ -835,6 +840,7 @@ onMounted(() => {
     <!-- 资产工具栏 Teleport -->
     <Teleport to="body">
       <div v-if="selected && node.node_type === 'asset'" class="fixed z-[9999]" :style="{ left: toolbarPos.left + 'px', top: toolbarPos.top + 'px', transform: 'translate(-50%, -100%)' }" @pointerdown.stop>
+        <ProductAssetActions v-if="assetMediaType === 'image' && assetImageUrl" :node="node" :selection="productSelection" @save="emit('save-content', $event)" @continue="emit('continue-generation', $event)" @bind-product="(product, ids) => emit('bind-product', product, ids)" />
         <div class="flex items-center gap-1.5 rounded-xl px-2.5 py-2 border border-white/10 bg-neutral-800/95 backdrop-blur-md shadow-lg">
           <button class="flex items-center gap-1.5 h-8 px-2.5 text-xs text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition-colors whitespace-nowrap" title="从资产库选择" @pointerdown.stop.prevent="showAssetPicker = !showAssetPicker">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>

@@ -13,6 +13,8 @@ import AssetNodePanel from './panels/AssetNodePanel.vue'
 import ScriptEditorModal from './ScriptEditorModal.vue'
 import DirectorEditorModal from './DirectorEditorModal.vue'
 import { resolveNodeInputs } from '../utils/nodeInputResolver'
+import type { GenerationType, ProductAsset } from '../types/product'
+import { readContent } from '../utils/generationContext'
 
 const panelMap: Record<string, any> = {
   text: TextNodePanel,
@@ -59,6 +61,7 @@ const emit = defineEmits<{
   (e: 'grid-split', data: { cols: number; rows: number; urls: string[] }): void
   (e: 'image-generated', payload: { sourceNodeId: string; assets: any[] }): void
   (e: 'references-uploaded', payload: { targetNodeId: string; assets: any[]; onComplete?: (error?: string) => void }): void
+  (e: 'continue-generation', node: Node, type: GenerationType): void
 }>()
 
 // 连线拖拽状态
@@ -131,6 +134,12 @@ const panelStyle = computed(() => {
 
 // Edge 同时是可视连线与数据依赖；解析逻辑保持为无状态纯函数，避免缓存旧输出。
 const nodeInputs = computed(() => resolveNodeInputs(props.nodes, props.edges))
+const selectedImageNodes = computed(() => props.nodes.filter(node => node.node_type === 'asset' && props.selectedNodeIds.includes(node.id)))
+function bindProduct(product: ProductAsset, ids: string[]) {
+  for (const node of props.nodes.filter(node => ids.includes(node.id))) {
+    emit('save-node-content', node.id, JSON.stringify({ ...readContent(node.content), product_asset_id: product.id, product_snapshot: product }))
+  }
+}
 
 // 节点拖拽中的实时偏移（用于边跟随移动）
 const dragOffsets = reactive<Record<string, { x: number; y: number }>>({})
@@ -484,6 +493,7 @@ function onPanelSave(payload: string | { nodeId: string; content: string }) {
         :connecting="connecting !== null"
         :snap-target="snapTarget"
         :assets="assets"
+        :product-selection="selectedImageNodes"
         @select="emit('select', node.id, $event)"
         @drag-end="onNodeDragEnd(node.id, $event.x, $event.y)"
         @drag-move="onNodeDragMove(node.id, $event.x, $event.y)"
@@ -491,6 +501,8 @@ function onPanelSave(payload: string | { nodeId: string; content: string }) {
         @resize-move="onNodeResizeMove(node.id, $event.width, $event.height, $event.x, $event.y)"
         @connect-start="onConnectStart(node.id, $event.dir, $event.e)"
         @save-content="(content: string) => emit('save-node-content', node.id, content)"
+        @continue-generation="emit('continue-generation', node, $event)"
+        @bind-product="bindProduct"
         @edit-script="showScriptEditor = true"
         @edit-director="showDirectorEditor = true"
         @grid-split="(data: any) => emit('grid-split', data)"
