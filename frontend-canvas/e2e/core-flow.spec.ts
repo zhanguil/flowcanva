@@ -208,6 +208,112 @@ test('image generation tasks run concurrently and render results on their origin
   }
 })
 
+test('generated asset nodes provide a browser download for the rendered image', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  const testCanvas = await createTestCanvas(request)
+
+  await page.route('**/api/images/generate', async route => {
+    const body = route.request().postDataJSON()
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: [{
+          id: 'downloadable_generated_asset',
+          filename: 'downloadable-generated.png',
+          url: `data:image/png;base64,${tinyPng}`,
+          size: 68,
+          mime_type: 'image/png',
+          width: 1,
+          height: 1,
+        }],
+        task_id: body.task_id,
+      }),
+    })
+  })
+
+  await openTestCanvas(page, testCanvas)
+  await page.getByTestId('dock-close').click()
+  await page.locator(`[data-node-id="${testCanvas.nodes.generation_b}"].canvas-node`).click({ position: { x: 100, y: 60 } })
+
+  const generationResponse = page.waitForResponse(response =>
+    response.url().includes('/api/images/generate') && response.request().method() === 'POST',
+  )
+  await page.getByTestId('generate-image').click()
+  expect((await generationResponse).status()).toBe(200)
+
+  let outputNode: CanvasSnapshot['nodes'][number] | undefined
+  await expect.poll(async () => {
+    const snapshot = await canvasSnapshot(request, testCanvas.canvas_id)
+    outputNode = snapshot.nodes.find(node => {
+      try {
+        const content = JSON.parse(node.content || '{}')
+        return content.asset_id === 'downloadable_generated_asset'
+      } catch { return false }
+    })
+    return Boolean(outputNode)
+  }).toBe(true)
+  expect(outputNode).toBeTruthy()
+  expect(outputNode!.width).toBeGreaterThan(0)
+  expect(outputNode!.height).toBeGreaterThan(0)
+
+  const generatedNode = page.locator(`[data-node-id="${outputNode!.id}"].canvas-node`)
+  await expect(generatedNode).toBeVisible()
+  await generatedNode.click({ position: { x: 100, y: 100 } })
+  const downloadButton = page.getByTestId('download-asset')
+  await expect(downloadButton).toBeVisible()
+
+  const downloadPromise = page.waitForEvent('download')
+  await downloadButton.click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toBe('downloadable-generated.png')
+  expect(await download.path()).not.toBeNull()
+})
+
+test('persisted generation outputs are restored as visible asset nodes after refresh', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  const testCanvas = await createTestCanvas(request)
+  const snapshot = await canvasSnapshot(request, testCanvas.canvas_id)
+  const source = snapshot.nodes.find(node => node.id === testCanvas.nodes.generation_b)!
+  const generatedAsset = {
+    id: 'restored_asset',
+    asset_id: 'restored_asset',
+    name: 'restored.png',
+    url: `data:image/png;base64,${tinyPng}`,
+    size: 68,
+    mime_type: 'image/png',
+    width: 1,
+    height: 1,
+  }
+  const sourceContent = JSON.parse(source.content || '{}')
+  sourceContent.generated_images = [generatedAsset]
+  sourceContent.output = { generated_asset_ids: [generatedAsset.id] }
+
+  const updateResponse = await request.put(`/api/canvases/${testCanvas.canvas_id}/nodes/${source.id}`, {
+    data: { content: JSON.stringify(sourceContent) },
+  })
+  expect(updateResponse.ok()).toBeTruthy()
+
+  await openTestCanvas(page, testCanvas)
+  await expect(page.locator('[data-node-type="asset"].canvas-node')).toHaveCount(3)
+  const restored = page.locator('[data-node-type="asset"].canvas-node').filter({ has: page.locator('img') }).last()
+  await expect(restored).toBeVisible()
+  await expect(restored.locator('img')).toHaveAttribute('src', `data:image/png;base64,${tinyPng}`)
+
+  const after = await canvasSnapshot(request, testCanvas.canvas_id)
+  const outputNode = after.nodes.find(node => {
+    try {
+      const content = JSON.parse(node.content || '{}')
+      return content.parent_generation_node_id === source.id && content.asset_id === generatedAsset.id
+    } catch { return false }
+  })
+  expect(outputNode).toBeTruthy()
+  expect(after.edges).toContainEqual(expect.objectContaining({
+    source_node_id: source.id,
+    target_node_id: outputNode!.id,
+  }))
+})
+
 test('image output handle exposes a clear continue-generation action and creates a connected Generation node', async ({ page, request }) => {
   await page.setViewportSize({ width: 1600, height: 1000 })
   const testCanvas = await createTestCanvas(request)

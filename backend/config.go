@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -26,6 +27,10 @@ type Config struct {
 	ImageModelPro       string
 	ImageModelEdit      string
 	ImageProvider       string
+	MaxConcurrentJobs   int
+	FalAPIKey           string
+	FalBaseURL          string
+	FalImageEditModel   string
 }
 
 func loadConfig() Config {
@@ -33,6 +38,10 @@ func loadConfig() Config {
 	embedded := os.Getenv("EMBEDDED") == "true"
 	if !embedded {
 		embedded = embedHasContent()
+	}
+	maxConcurrentJobs, _ := strconv.Atoi(envOrDefault("MAX_CONCURRENT_JOBS", "4"))
+	if maxConcurrentJobs < 1 {
+		maxConcurrentJobs = 4
 	}
 	return Config{
 		Host:                envOrDefault("SERVER_HOST", "0.0.0.0"),
@@ -52,6 +61,10 @@ func loadConfig() Config {
 		ImageModelPro:       envOrDefault("IMAGE_MODEL_PRO", "gemini-3-pro-image-preview"),
 		ImageModelEdit:      envOrDefault("IMAGE_MODEL_EDIT", "gpt-image-2"),
 		ImageProvider:       envOrDefault("IMAGE_PROVIDER", "vectorengine"),
+		MaxConcurrentJobs:   maxConcurrentJobs,
+		FalAPIKey:           os.Getenv("FAL_KEY"),
+		FalBaseURL:          envOrDefault("FAL_BASE_URL", "https://fal.run"),
+		FalImageEditModel:   envOrDefault("FAL_IMAGE_EDIT_MODEL", "fal-ai/qwen-image-edit-2511"),
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -15,7 +16,11 @@ import (
 func (h *Handler) ListAssets(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "24"))
-	category := c.DefaultQuery("category", "")
+	filters := []struct{ column, value string }{
+		{"category", c.Query("category")}, {"project_id", c.Query("project_id")},
+		{"sku_id", c.Query("sku_id")}, {"type", c.Query("type")},
+		{"created_by", c.Query("created_by")}, {"source_type", c.Query("source_type")},
+	}
 	if page < 1 {
 		page = 1
 	}
@@ -24,11 +29,13 @@ func (h *Handler) ListAssets(c *gin.Context) {
 	}
 	offset := (page - 1) * pageSize
 
-	whereClause := ""
+	whereClause := " WHERE deleted_at = ''"
 	args := []any{}
-	if category != "" {
-		whereClause = " WHERE category = ?"
-		args = append(args, category)
+	for _, filter := range filters {
+		if filter.value != "" {
+			whereClause += " AND " + filter.column + " = ?"
+			args = append(args, filter.value)
+		}
 	}
 
 	var total int
@@ -40,7 +47,9 @@ func (h *Handler) ListAssets(c *gin.Context) {
 	}
 
 	queryArgs := append(args, pageSize, offset)
-	rows, err := h.db.Query(`SELECT id, filename, url, size, mime_type, width, height, category, tags, created_at FROM assets`+whereClause+` ORDER BY created_at DESC LIMIT ? OFFSET ?`, queryArgs...)
+	rows, err := h.db.Query(`SELECT id, filename, url, size, mime_type, width, height, category, tags,
+		project_id, type, thumbnail_url, aspect_ratio, source_type, role, sku_id, parent_asset_id,
+		created_by, generation_metadata, created_at FROM assets`+whereClause+` ORDER BY created_at DESC LIMIT ? OFFSET ?`, queryArgs...)
 	if err != nil {
 		h.log.Error("list assets", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -49,22 +58,34 @@ func (h *Handler) ListAssets(c *gin.Context) {
 	defer rows.Close()
 
 	type Asset struct {
-		ID        string `json:"id"`
-		Filename  string `json:"filename"`
-		URL       string `json:"url"`
-		Size      int64  `json:"size"`
-		MimeType  string `json:"mime_type"`
-		Width     int    `json:"width"`
-		Height    int    `json:"height"`
-		Category  string `json:"category"`
-		Tags      string `json:"tags"`
-		CreatedAt string `json:"created_at"`
+		ID                 string `json:"id"`
+		Filename           string `json:"filename"`
+		URL                string `json:"url"`
+		Size               int64  `json:"size"`
+		MimeType           string `json:"mime_type"`
+		Width              int    `json:"width"`
+		Height             int    `json:"height"`
+		Category           string `json:"category"`
+		Tags               string `json:"tags"`
+		ProjectID          string `json:"project_id"`
+		Type               string `json:"type"`
+		ThumbnailURL       string `json:"thumbnail_url"`
+		AspectRatio        string `json:"aspect_ratio"`
+		SourceType         string `json:"source_type"`
+		Role               string `json:"role"`
+		SKUID              string `json:"sku_id"`
+		ParentAssetID      string `json:"parent_asset_id"`
+		CreatedBy          string `json:"created_by"`
+		GenerationMetadata string `json:"generation_metadata"`
+		CreatedAt          string `json:"created_at"`
 	}
 
 	items := []Asset{}
 	for rows.Next() {
 		var a Asset
-		if err := rows.Scan(&a.ID, &a.Filename, &a.URL, &a.Size, &a.MimeType, &a.Width, &a.Height, &a.Category, &a.Tags, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Filename, &a.URL, &a.Size, &a.MimeType, &a.Width, &a.Height, &a.Category, &a.Tags,
+			&a.ProjectID, &a.Type, &a.ThumbnailURL, &a.AspectRatio, &a.SourceType, &a.Role, &a.SKUID,
+			&a.ParentAssetID, &a.CreatedBy, &a.GenerationMetadata, &a.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -122,8 +143,30 @@ func (h *Handler) UploadAsset(c *gin.Context) {
 	if mimeType == "" {
 		mimeType = file.Header.Get("Content-Type")
 	}
-	_, err = h.db.Exec(`INSERT INTO assets (id, filename, url, size, mime_type, width, height) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		id, file.Filename, url, file.Size, mimeType, width, height)
+	projectID := strings.TrimSpace(c.PostForm("project_id"))
+	assetType := strings.TrimSpace(c.PostForm("type"))
+	if assetType == "" {
+		assetType = "image"
+	}
+	sourceType := strings.TrimSpace(c.PostForm("source_type"))
+	if sourceType == "" {
+		sourceType = "upload"
+	}
+	createdBy := strings.TrimSpace(c.PostForm("created_by"))
+	if createdBy == "" {
+		createdBy = "member"
+	}
+	role, skuID, parentAssetID := c.PostForm("role"), c.PostForm("sku_id"), c.PostForm("parent_asset_id")
+	generationMetadata := c.PostForm("generation_metadata")
+	if generationMetadata == "" {
+		generationMetadata = "{}"
+	}
+	aspectRatio := imageAspectRatio(width, height)
+	_, err = h.db.Exec(`INSERT INTO assets (id, filename, url, size, mime_type, width, height, project_id,
+		type, thumbnail_url, aspect_ratio, source_type, role, sku_id, parent_asset_id, created_by, generation_metadata)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, file.Filename, url, file.Size, mimeType, width, height, projectID, assetType, url, aspectRatio,
+		sourceType, role, skuID, parentAssetID, createdBy, generationMetadata)
 	if err != nil {
 		h.log.Error("upload asset", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -132,16 +175,30 @@ func (h *Handler) UploadAsset(c *gin.Context) {
 
 	h.log.Info("asset uploaded", "id", id, "filename", file.Filename)
 	c.JSON(http.StatusCreated, gin.H{
-		"id":        id,
-		"filename":  file.Filename,
-		"url":       url,
-		"size":      file.Size,
-		"mime_type": mimeType,
-		"width":     width,
-		"height":    height,
-		"category":  "其他",
-		"tags":      "[]",
+		"id":         id,
+		"filename":   file.Filename,
+		"url":        url,
+		"size":       file.Size,
+		"mime_type":  mimeType,
+		"width":      width,
+		"height":     height,
+		"category":   "其他",
+		"tags":       "[]",
+		"project_id": projectID, "type": assetType, "thumbnail_url": url, "aspect_ratio": aspectRatio,
+		"source_type": sourceType, "role": role, "sku_id": skuID, "parent_asset_id": parentAssetID,
+		"created_by": createdBy, "generation_metadata": generationMetadata,
 	})
+}
+
+func imageAspectRatio(width, height int) string {
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+	a, b := width, height
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return strconv.Itoa(width/a) + ":" + strconv.Itoa(height/a)
 }
 
 func (h *Handler) assetUploadDir() string {
@@ -154,22 +211,18 @@ func (h *Handler) assetUploadDir() string {
 func (h *Handler) DeleteAsset(c *gin.Context) {
 	id := c.Param("id")
 
-	// get url to delete file
-	var url string
-	h.db.QueryRow(`SELECT url FROM assets WHERE id = ?`, id).Scan(&url)
-
-	_, err := h.db.Exec(`DELETE FROM assets WHERE id = ?`, id)
+	result, err := h.db.Exec(`UPDATE assets SET deleted_at=datetime('now','localtime') WHERE id = ? AND deleted_at = ''`, id)
 	if err != nil {
 		h.log.Error("delete asset", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// try to delete file
-	if url != "" {
-		os.Remove("." + url)
+	count, _ := result.RowsAffected()
+	if count == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "asset not found"})
+		return
 	}
-
 	c.Status(http.StatusNoContent)
 }
 

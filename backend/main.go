@@ -38,10 +38,17 @@ func main() {
 		imageModelPro:   cfg.ImageModelPro,
 		imageModelEdit:  cfg.ImageModelEdit,
 		imageProvider:   imageProvider,
+		jobQueue:        NewJobQueue(cfg.MaxConcurrentJobs),
 		devMode:         cfg.DevMode,
 		generationDebug: &GenerationDebugStore{},
 		uploadDir:       cfg.UploadDir,
 	}
+	h.generationProviders = map[string]GenerationProvider{"legacy": NewLegacyProvider(h)}
+	if cfg.FalAPIKey != "" {
+		h.generationProviders["fal"] = NewFalProvider(cfg.FalBaseURL, cfg.FalAPIKey, cfg.FalImageEditModel, cfg.UploadDir, nil)
+		logger.Info("fal generation provider enabled", "model", cfg.FalImageEditModel)
+	}
+	h.resumeQueuedRecipeJobs()
 	r := setupRouter(h, cfg)
 
 	logger.Info("server ready", "listen_address", cfg.ListenAddress())

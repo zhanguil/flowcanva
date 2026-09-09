@@ -101,13 +101,16 @@ export function useNodes() {
     await updateNode(canvasId.value, id, { width, height, x, y })
   }
 
-  async function updateNodeContent(id: string, content: string) {
+  async function updateNodeContent(id: string, content: string, strict = false) {
     const node = nodes.value.find(n => n.id === id)
+    const previousContent = node?.content
     if (node) {
       node.content = content
     }
     if (!canvasId.value) return
-    try { await updateNode(canvasId.value, id, { content }) } catch { /* ignore save errors during stream */ }
+    try { await updateNode(canvasId.value, id, { content }) } catch (error) {
+      if (strict) { if (node?.content === content) node.content = previousContent || ''; throw error }
+    }
   }
 
   async function removeNode(id: string) {

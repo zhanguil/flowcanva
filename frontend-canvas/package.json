@@ -11,6 +11,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@tabler/icons-vue": "3.34.1",
     "@types/three": "^0.185.0",
     "marked": "^18.0.5",
     "pannellum": "^2.5.7",

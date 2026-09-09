@@ -9,7 +9,7 @@ const CANVAS_APP_URL = '/canvas/'
           <div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm0 8a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zm12 0a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/></svg>
           </div>
-          <router-link to="/" class="text-base font-extrabold tracking-wide leading-tight hover:text-primary transition-colors text-base-content/80">FlowCanva</router-link>
+          <router-link to="/" class="text-sm font-extrabold tracking-wide leading-tight hover:text-primary transition-colors text-base-content/80">Furniture AI Studio</router-link>
         </div>
 
         <nav class="flex-1 overflow-y-auto py-4 space-y-4">
@@ -22,7 +22,7 @@ const CANVAS_APP_URL = '/canvas/'
             >
               <span class="absolute left-0 top-2 bottom-2 w-0.75 bg-primary rounded-r opacity-0 group-[.router-link-active]:opacity-100 transition-opacity" />
               <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0 opacity-80" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm0 8a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zm12 0a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/></svg>
-              画布项目
+              产品项目
             </router-link>
           </div>
 

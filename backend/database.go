@@ -107,6 +107,116 @@ func migrate(db *sql.DB, log *slog.Logger) error {
 			target_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
 			created_at     TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 		)`,
+		`CREATE TABLE IF NOT EXISTS studio_projects (
+			id             TEXT PRIMARY KEY,
+			workspace_id   TEXT NOT NULL DEFAULT 'workspace_company',
+			canvas_id      TEXT NOT NULL UNIQUE REFERENCES canvases(id),
+			name           TEXT NOT NULL DEFAULT '',
+			product_name   TEXT NOT NULL DEFAULT '',
+			created_by     TEXT NOT NULL DEFAULT 'member',
+			status         TEXT NOT NULL DEFAULT 'draft',
+			cover_asset_id TEXT NOT NULL DEFAULT '',
+			tags           TEXT NOT NULL DEFAULT '[]',
+			deleted_at     TEXT NOT NULL DEFAULT '',
+			created_at     TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+			updated_at     TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+		)`,
+		`CREATE TABLE IF NOT EXISTS product_packs (
+			id           TEXT PRIMARY KEY,
+			project_id   TEXT NOT NULL UNIQUE REFERENCES studio_projects(id),
+			product_name TEXT NOT NULL DEFAULT '',
+			created_by   TEXT NOT NULL DEFAULT 'member',
+			product_dna  TEXT NOT NULL DEFAULT '{}',
+			created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+			updated_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+		)`,
+		`CREATE TABLE IF NOT EXISTS reference_packs (
+			id              TEXT PRIMARY KEY,
+			project_id      TEXT NOT NULL REFERENCES studio_projects(id),
+			product_pack_id TEXT NOT NULL UNIQUE REFERENCES product_packs(id),
+			created_by      TEXT NOT NULL DEFAULT 'member',
+			created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+			updated_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+		)`,
+		`CREATE TABLE IF NOT EXISTS product_skus (
+			id                    TEXT PRIMARY KEY,
+			product_pack_id       TEXT NOT NULL REFERENCES product_packs(id) ON DELETE CASCADE,
+			name                  TEXT NOT NULL DEFAULT '',
+			label                 TEXT NOT NULL DEFAULT '',
+			width                 REAL,
+			height                REAL,
+			depth                 REAL,
+			reference_asset_ids   TEXT NOT NULL DEFAULT '[]',
+			sort_order            INTEGER NOT NULL DEFAULT 0,
+			created_at            TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+			updated_at            TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+		)`,
+		`CREATE TABLE IF NOT EXISTS reference_assets (
+			id                TEXT PRIMARY KEY,
+			reference_pack_id TEXT NOT NULL REFERENCES reference_packs(id) ON DELETE CASCADE,
+			asset_id          TEXT NOT NULL REFERENCES assets(id),
+			role              TEXT NOT NULL DEFAULT 'product_main',
+			weight            REAL NOT NULL DEFAULT 1,
+			locked            INTEGER NOT NULL DEFAULT 0,
+			description       TEXT NOT NULL DEFAULT '',
+			sort_order        INTEGER NOT NULL DEFAULT 0,
+			created_at        TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+			UNIQUE(reference_pack_id, asset_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS recipes (
+			id                     TEXT PRIMARY KEY,
+			name                   TEXT NOT NULL,
+			version                INTEGER NOT NULL DEFAULT 1,
+			outputs                TEXT NOT NULL DEFAULT '[]',
+			prompt_template_id     TEXT NOT NULL DEFAULT '',
+			estimated_cost_per_job REAL NOT NULL DEFAULT 0,
+			currency               TEXT NOT NULL DEFAULT 'USD',
+			created_by             TEXT NOT NULL DEFAULT 'admin',
+			enabled                INTEGER NOT NULL DEFAULT 1,
+			created_at             TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+			updated_at             TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+		)`,
+		`CREATE TABLE IF NOT EXISTS recipe_runs (
+			id             TEXT PRIMARY KEY,
+			project_id     TEXT NOT NULL REFERENCES studio_projects(id),
+			recipe_id      TEXT NOT NULL REFERENCES recipes(id),
+			recipe_version INTEGER NOT NULL,
+			request_id     TEXT NOT NULL UNIQUE,
+			status         TEXT NOT NULL DEFAULT 'pending',
+			job_count      INTEGER NOT NULL DEFAULT 0,
+			total_cost     REAL NOT NULL DEFAULT 0,
+			created_by     TEXT NOT NULL DEFAULT 'member',
+			created_at     TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+			started_at     TEXT NOT NULL DEFAULT '',
+			finished_at    TEXT NOT NULL DEFAULT '',
+			layout_origin_x REAL NOT NULL DEFAULT 200,
+			layout_origin_y REAL NOT NULL DEFAULT 200
+		)`,
+		`CREATE TABLE IF NOT EXISTS generation_jobs (
+			id                 TEXT PRIMARY KEY,
+			project_id         TEXT NOT NULL REFERENCES studio_projects(id),
+			recipe_run_id      TEXT NOT NULL REFERENCES recipe_runs(id) ON DELETE CASCADE,
+			sku_id             TEXT NOT NULL REFERENCES product_skus(id),
+			output_type        TEXT NOT NULL,
+			status             TEXT NOT NULL DEFAULT 'pending',
+			provider           TEXT NOT NULL DEFAULT 'legacy',
+			model              TEXT NOT NULL DEFAULT '',
+			prompt             TEXT NOT NULL DEFAULT '',
+			prompt_version     INTEGER NOT NULL DEFAULT 1,
+			reference_pack     TEXT NOT NULL DEFAULT '{}',
+			aspect_ratio       TEXT NOT NULL DEFAULT '1:1',
+			created_by         TEXT NOT NULL DEFAULT 'member',
+			created_at         TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+			started_at         TEXT NOT NULL DEFAULT '',
+			finished_at        TEXT NOT NULL DEFAULT '',
+			estimated_cost     REAL NOT NULL DEFAULT 0,
+			actual_cost        REAL NOT NULL DEFAULT 0,
+			duration_ms        INTEGER NOT NULL DEFAULT 0,
+			retry_count        INTEGER NOT NULL DEFAULT 0,
+			result_asset_id    TEXT NOT NULL DEFAULT '',
+			error_code         TEXT NOT NULL DEFAULT '',
+			error_message      TEXT NOT NULL DEFAULT ''
+		)`,
 	}
 
 	for _, m := range migrations {
@@ -159,7 +269,15 @@ func migrate(db *sql.DB, log *slog.Logger) error {
 	_ = os.MkdirAll("uploads", 0755)
 
 	// backward-compat: add category/tags columns to existing assets table
-	addColsIfMissing(db, "assets", []string{"mime_type TEXT NOT NULL DEFAULT ''", "category TEXT NOT NULL DEFAULT '其他'", "tags TEXT NOT NULL DEFAULT '[]'"})
+	addColsIfMissing(db, "assets", []string{
+		"mime_type TEXT NOT NULL DEFAULT ''", "category TEXT NOT NULL DEFAULT '其他'", "tags TEXT NOT NULL DEFAULT '[]'",
+		"project_id TEXT NOT NULL DEFAULT ''", "type TEXT NOT NULL DEFAULT 'image'", "thumbnail_url TEXT NOT NULL DEFAULT ''",
+		"aspect_ratio TEXT NOT NULL DEFAULT ''", "source_type TEXT NOT NULL DEFAULT 'upload'", "role TEXT NOT NULL DEFAULT ''",
+		"sku_id TEXT NOT NULL DEFAULT ''", "parent_asset_id TEXT NOT NULL DEFAULT ''", "created_by TEXT NOT NULL DEFAULT 'member'",
+		"generation_metadata TEXT NOT NULL DEFAULT '{}'", "deleted_at TEXT NOT NULL DEFAULT ''",
+	})
+	addColsIfMissing(db, "product_skus", []string{"sort_order INTEGER NOT NULL DEFAULT 0"})
+	addColsIfMissing(db, "recipe_runs", []string{"layout_origin_x REAL NOT NULL DEFAULT 200", "layout_origin_y REAL NOT NULL DEFAULT 200"})
 	// Generation nodes are controls. Their images now live in independent asset nodes,
 	// so collapse legacy 300px preview cards that no longer render an output preview.
 	if _, err := db.Exec(`UPDATE nodes SET height = 88 WHERE node_type = 'image' AND height > 120`); err != nil {
@@ -174,6 +292,25 @@ func migrate(db *sql.DB, log *slog.Logger) error {
 
 	// performance index for asset pagination
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_assets_created_at ON assets(created_at)`)
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_studio_projects_updated_at ON studio_projects(updated_at)`)
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_product_skus_pack ON product_skus(product_pack_id)`)
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_reference_assets_pack ON reference_assets(reference_pack_id, sort_order)`)
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_recipe_runs_project ON recipe_runs(project_id, created_at)`)
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_generation_jobs_run ON generation_jobs(recipe_run_id, status)`)
+	// Existing canvases remain usable and appear as draft V0.2 projects.
+	db.Exec(`INSERT OR IGNORE INTO studio_projects (id, canvas_id, name, product_name)
+		SELECT 'prj_' || substr(id, 4), id, name, name FROM canvases WHERE project_type = 'canvas'`)
+	// Legacy canvases also need an editable empty Product Pack, otherwise their
+	// new project detail page would have no setup form.
+	db.Exec(`INSERT OR IGNORE INTO product_packs (id, project_id, product_name, created_by, product_dna)
+		SELECT 'pack_' || substr(id, 5), id, product_name, created_by,
+		'{"productType":"","structuralFeatures":{},"materials":{},"forbiddenChanges":[],"allowedChanges":[]}'
+		FROM studio_projects WHERE deleted_at=''`)
+	db.Exec(`INSERT OR IGNORE INTO reference_packs (id, project_id, product_pack_id, created_by)
+		SELECT 'refs_' || substr(pp.id, 6), pp.project_id, pp.id, pp.created_by FROM product_packs pp`)
+	db.Exec(`INSERT OR IGNORE INTO recipes (id, name, version, outputs) VALUES
+		('furniture_sku_main_images', 'SKU 主图套装', 1, '[{"outputType":"scene_front","aspectRatio":"3:4"},{"outputType":"scene_front","aspectRatio":"1:1"}]'),
+		('furniture_sku_full_pack', 'SKU 全套图片', 1, '[{"outputType":"scene_front","aspectRatio":"3:4"},{"outputType":"scene_front","aspectRatio":"1:1"},{"outputType":"scene_45","aspectRatio":"3:4"},{"outputType":"white_background","aspectRatio":"1:1"},{"outputType":"material_detail","aspectRatio":"1:1"},{"outputType":"feature_detail","aspectRatio":"3:4"}]')`)
 
 	return nil
 }

@@ -1,18 +1,20 @@
 <script setup lang="ts">
+import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
+import { marked } from 'marked'
+import { IconEdit } from '@tabler/icons-vue'
+import { uploadAsset } from '../api'
+import { ASSET_CATEGORIES, useAssets } from '../composables/useAssets'
+import { useImageGenerationTasks } from '../composables/useImageGenerationTasks'
+import ImageEditorModal from './ImageEditorModal.vue'
 import { imageNodeSize } from '../utils/imageOptions'
 import { isSupportedCanvasImage } from '../utils/canvasCoordinates'
 import ProductAssetActions from './ProductAssetActions.vue'
 import type { GenerationType, ProductAsset } from '../types/product'
-import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
-import { marked } from 'marked'
-import { uploadAsset } from '../api'
-import { ASSET_CATEGORIES } from '../composables/useAssets'
-import { useImageGenerationTasks } from '../composables/useImageGenerationTasks'
 import 'pannellum'
 import 'pannellum/build/pannellum.css'
 
 const pannellum: any = (window as any).pannellum
-import type { Node } from '../types'
+import type { Node, Asset } from '../types'
 
 const props = defineProps<{
   node: Node
@@ -27,6 +29,7 @@ const props = defineProps<{
 }>()
 
 const { tasks: imageGenerationTasks } = useImageGenerationTasks()
+const { addAsset: addEditedAsset } = useAssets()
 const imageGenerationTask = computed(() => imageGenerationTasks[props.node.id])
 
 const emit = defineEmits<{
@@ -45,10 +48,12 @@ const emit = defineEmits<{
   (e: 'grid-split', data: { cols: number; rows: number; urls: string[] }): void
   (e: 'continue-generation', type: GenerationType): void
   (e: 'bind-product', product: ProductAsset, nodeIds: string[]): void
+  (e: 'save-edited', payload: { sourceNodeId: string; asset: Asset; mode: 'replace' | 'copy'; onComplete: (error?: string) => void }): void
 }>()
 
 // 资产节点上传
 const assetPreviewOpen = ref(false)
+const assetEditorSaving = ref(false)
 const showAssetPicker = ref(false)
 // 资产选择器分类筛选(与资产库面板一致)
 const pickerCategory = ref<string>('全部')
@@ -58,12 +63,88 @@ const imageGridCols = ref(0)
 const imageGridRows = ref(0)
 const showImageGridPicker = ref(false)
 const imagePreviewOpen = ref(false)
+const assetDownloadState = ref<'idle' | 'downloading'>('idle')
+const assetDownloadError = ref('')
 
-function downloadImage(url: string) {
-  const a = document.createElement('a')
-  a.href = url
-  a.download = url.split('/').pop() || 'image.png'
-  a.click()
+function mimeExtension(mimeType: string) {
+  const extensions: Record<string, string> = {
+    'image/jpeg': '.jpg',
+    'image/png': '.png',
+    'image/webp': '.webp',
+    'image/gif': '.gif',
+    'image/avif': '.avif',
+  }
+  return extensions[mimeType.toLowerCase()] || ''
+}
+
+function normalizeDownloadName(preferredName: string, url: string, mimeType: string) {
+  let filename = preferredName.trim()
+  if (!filename && !url.startsWith('data:')) {
+    try {
+      filename = decodeURIComponent(new URL(url, window.location.href).pathname.split('/').pop() || '')
+    } catch { /* use the default below */ }
+  }
+  filename = filename.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/g, '')
+  if (!filename) filename = 'generated-image'
+  if (!/\.[a-z0-9]{2,5}$/i.test(filename)) filename += mimeExtension(mimeType) || '.png'
+  return filename
+}
+
+function triggerDownload(url: string, filename: string) {
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.style.display = 'none'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
+
+async function downloadImage(url: string, preferredName = '', mimeType = '') {
+  if (!url || assetDownloadState.value === 'downloading') return
+  assetDownloadState.value = 'downloading'
+  assetDownloadError.value = ''
+  let objectUrl = ''
+  try {
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const blob = await response.blob()
+    if (blob.size === 0) throw new Error('empty image')
+    objectUrl = URL.createObjectURL(blob)
+    triggerDownload(objectUrl, normalizeDownloadName(preferredName, url, blob.type || mimeType))
+  } catch (error) {
+    console.error('download asset failed', error)
+    // A direct link is still useful for providers that disallow browser-side reads.
+    triggerDownload(url, normalizeDownloadName(preferredName, url, mimeType))
+    assetDownloadError.value = '无法读取文件，已尝试直接下载'
+  } finally {
+    if (objectUrl) window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+    assetDownloadState.value = 'idle'
+  }
+}
+
+async function saveEditedAsset(file: File, mode: 'replace' | 'copy') {
+  if (assetEditorSaving.value) return
+  assetEditorSaving.value = true
+  assetDownloadError.value = ''
+  try {
+    const asset = await addEditedAsset(file)
+    if (!asset) throw new Error('upload failed')
+    await new Promise<void>((resolve, reject) => emit('save-edited', {
+      sourceNodeId: props.node.id, asset, mode,
+      onComplete: error => error ? reject(new Error(error)) : resolve(),
+    }))
+    assetPreviewOpen.value = false
+  } catch (error) {
+    console.error('save edited asset failed', error)
+    assetDownloadError.value = '编辑结果保存失败，请重试'
+  } finally {
+    assetEditorSaving.value = false
+  }
+}
+
+function splitEditedAsset(payload: { cols: number; rows: number; urls: string[] }) {
+  emit('grid-split', payload)
 }
 
 async function storyboardExport() {
@@ -175,7 +256,8 @@ function onAssetDragOver(e: DragEvent) {
 }
 
 function onAssetDrop(e: DragEvent) {
-  // Image drops are handled once by the canvas importer, including multi-file drops.
+  // File drops belong to the canvas importer. Let the event bubble once so
+  // dropping several files over an existing image never replaces or duplicates it.
   if (Array.from(e.dataTransfer?.files || []).some(isSupportedCanvasImage)) return
   e.preventDefault()
   e.stopPropagation()
@@ -469,6 +551,31 @@ function isSnapHandle(dir: string) {
   return props.snapTarget?.nodeId === props.node.id && props.snapTarget?.dir === dir
 }
 
+const assetImageUrl = computed(() => {
+  if (props.node.node_type !== 'asset' || !props.node.content) return null
+  try {
+    const p = JSON.parse(props.node.content)
+    return p.url || p.dataUrl || null
+  } catch { return null }
+})
+
+function getAssetDisplaySize(img: HTMLImageElement) {
+  const currentWidth = Number(props.node.width)
+  const currentHeight = Number(props.node.height)
+  const fallbackWidth = Math.max(160, Number.isFinite(currentWidth) && currentWidth > 0 ? currentWidth : 320)
+  const fallbackHeight = Math.max(154, Number.isFinite(currentHeight) && currentHeight > 0 ? currentHeight : 300)
+  const naturalWidth = Number(img.naturalWidth)
+  const naturalHeight = Number(img.naturalHeight)
+
+  // Keep the node interactive when a provider returns a tiny image or the
+  // browser cannot expose its intrinsic dimensions.
+  if (!Number.isFinite(naturalWidth) || !Number.isFinite(naturalHeight) || naturalWidth <= 0 || naturalHeight <= 0) {
+    return { w: fallbackWidth, h: fallbackHeight }
+  }
+
+  return imageNodeSize(naturalWidth, naturalHeight)
+}
+
 const imageOriginLabel = computed(() => {
   if (props.node.node_type !== 'asset') return ''
   try {
@@ -478,12 +585,20 @@ const imageOriginLabel = computed(() => {
   } catch { return '' }
 })
 
-const assetImageUrl = computed(() => {
-  if (props.node.node_type !== 'asset' || !props.node.content) return null
+const assetFileName = computed(() => {
+  if (props.node.node_type !== 'asset' || !props.node.content) return ''
   try {
     const p = JSON.parse(props.node.content)
-    return p.url || p.dataUrl || null
-  } catch { return null }
+    return String(p.name || p.filename || '')
+  } catch { return '' }
+})
+
+const assetMimeType = computed(() => {
+  if (props.node.node_type !== 'asset' || !props.node.content) return ''
+  try {
+    const p = JSON.parse(props.node.content)
+    return String(p.mime_type || p.mimeType || '')
+  } catch { return '' }
 })
 
 const workflowContent = computed(() => {
@@ -731,17 +846,18 @@ onMounted(() => {
       <div v-else-if="node.node_type === 'asset'" class="h-full w-full flex items-center justify-center relative"
         @dragover="onAssetDragOver" @drop="onAssetDrop" @click="!assetImageUrl && onAssetSelectImage()">
         <!-- 图片 -->
-        <template v-if="assetMediaType === 'image' && assetImageUrl && !dragging">
+        <template v-if="assetMediaType === 'image' && assetImageUrl">
           <img :src="assetImageUrl" class="w-full h-full object-contain"
-            @load="(e) => { const img = e.target as HTMLImageElement; emit('image-loaded', imageNodeSize(img.naturalWidth, img.naturalHeight)); }"
+            @load="(e) => { const size = getAssetDisplaySize(e.target as HTMLImageElement); emit('image-loaded', size); }"
+            @dblclick.stop="assetPreviewOpen = true"
           />
         </template>
         <!-- 视频 -->
-        <template v-else-if="assetMediaType === 'video' && assetImageUrl && !dragging">
+        <template v-else-if="assetMediaType === 'video' && assetImageUrl">
           <video :src="assetImageUrl" controls class="w-full h-full object-contain" />
         </template>
         <!-- 音频 -->
-        <template v-else-if="assetMediaType === 'audio' && assetImageUrl && !dragging">
+        <template v-else-if="assetMediaType === 'audio' && assetImageUrl">
           <audio :src="assetImageUrl" controls class="w-full max-w-[200px]" />
         </template>
         <!-- 空状态 -->
@@ -848,7 +964,20 @@ onMounted(() => {
           </button>
           <span class="w-px h-5 bg-white/10" />
           <button class="w-8 h-8 flex items-center justify-center rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors" title="本地上传" @pointerdown.stop.prevent="onAssetSelectImage"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
-          <button v-if="assetImageUrl" class="w-8 h-8 flex items-center justify-center rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors" title="预览大图" @pointerdown.stop.prevent="assetPreviewOpen = true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+          <button v-if="assetImageUrl" data-testid="edit-asset-image" class="w-8 h-8 flex items-center justify-center rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors" title="编辑图片" aria-label="编辑图片" @pointerdown.stop.prevent="assetPreviewOpen = true"><IconEdit :size="16" /></button>
+          <button
+            v-if="assetImageUrl"
+            data-testid="download-asset"
+            class="w-8 h-8 flex items-center justify-center rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-40"
+            :title="assetDownloadError || '下载图片'"
+            :aria-label="assetDownloadState === 'downloading' ? '正在下载图片' : '下载图片'"
+            :disabled="assetDownloadState === 'downloading'"
+            @pointerdown.stop.prevent
+            @click.stop="downloadImage(assetImageUrl, assetFileName, assetMimeType)"
+          >
+            <span v-if="assetDownloadState === 'downloading'" class="loading loading-spinner loading-xs" />
+            <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+          </button>
           <button v-if="assetImageUrl" class="w-8 h-8 flex items-center justify-center rounded-lg text-red-400/70 hover:text-red-400 hover:bg-red-400/10 transition-colors" title="删除" @pointerdown.stop.prevent="onAssetRemove"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
         </div>
         <!-- 资产选择下拉 -->
@@ -871,15 +1000,16 @@ onMounted(() => {
       </div>
     </Teleport>
 
-    <!-- 资产大图预览 -->
-    <Teleport to="body">
-      <div v-if="assetPreviewOpen && assetImageUrl" class="fixed inset-0 z-[9998] flex items-center justify-center bg-black/80" @click="assetPreviewOpen = false">
-        <img :src="assetImageUrl" class="max-w-[90vw] max-h-[90vh] object-contain" @click.stop />
-        <button class="absolute top-4 right-4 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20" @click="assetPreviewOpen = false">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-    </Teleport>
+    <ImageEditorModal
+      :open="assetPreviewOpen && !!assetImageUrl"
+      :src="assetImageUrl || ''"
+      :filename="assetFileName"
+      :saving="assetEditorSaving"
+      :save-error="assetDownloadError"
+      @close="assetPreviewOpen = false"
+      @save="saveEditedAsset"
+      @grid-split="splitEditedAsset"
+    />
 
     <!-- 全景操作提示 -->
     <Teleport to="body">

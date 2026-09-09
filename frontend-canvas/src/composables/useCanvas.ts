@@ -1,4 +1,4 @@
-import { reactive, computed, readonly } from 'vue'
+import { reactive, computed, readonly, onBeforeUnmount } from 'vue'
 import type { ViewportState } from '../types'
 import { screenToCanvasPoint as convertScreenToCanvasPoint } from '../utils/canvasCoordinates'
 
@@ -7,6 +7,18 @@ const MAX_ZOOM = 5
 
 export function useCanvas() {
   const viewport = reactive<ViewportState>({ ox: 0, oy: 0, zoom: 1 })
+
+  let frame = 0
+  let pending: ViewportState | null = null
+  function flushViewport() {
+    if (frame) cancelAnimationFrame(frame)
+    frame = 0
+    if (pending) { Object.assign(viewport, pending); pending = null }
+  }
+  function queueViewport() {
+    if (!frame) frame = requestAnimationFrame(flushViewport)
+  }
+  onBeforeUnmount(() => { if (frame) cancelAnimationFrame(frame) })
 
   let isPanning = false
   let lastX = 0
@@ -53,6 +65,7 @@ export function useCanvas() {
   })
 
   function screenToCanvasPoint(sx: number, sy: number) {
+    flushViewport()
     return convertScreenToCanvasPoint(viewport, sx, sy)
   }
 
@@ -64,6 +77,7 @@ export function useCanvas() {
   }
 
   function zoomAt(px: number, py: number, factor: number) {
+    flushViewport()
     const worldX = (px - viewport.ox) / viewport.zoom
     const worldY = (py - viewport.oy) / viewport.zoom
     viewport.zoom = clamp(viewport.zoom * factor, MIN_ZOOM, MAX_ZOOM)
@@ -73,15 +87,19 @@ export function useCanvas() {
 
   function onWheel(e: WheelEvent) {
     e.preventDefault()
+    const next = pending ||= { ...viewport }
     if (e.ctrlKey || e.metaKey) {
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
       const px = e.clientX - rect.left
       const py = e.clientY - rect.top
-      zoomAt(px, py, e.deltaY < 0 ? 1.08 : 0.93)
+      const wx = (px - next.ox) / next.zoom, wy = (py - next.oy) / next.zoom
+      next.zoom = clamp(next.zoom * (e.deltaY < 0 ? 1.08 : 0.93), MIN_ZOOM, MAX_ZOOM)
+      next.ox = px - wx * next.zoom; next.oy = py - wy * next.zoom
     } else {
-      viewport.ox -= e.deltaX
-      viewport.oy -= e.deltaY
+      next.ox -= e.deltaX
+      next.oy -= e.deltaY
     }
+    queueViewport()
   }
 
   function onPointerDown(e: PointerEvent) {
@@ -97,20 +115,24 @@ export function useCanvas() {
 
   function onPointerMove(e: PointerEvent) {
     if (!isPanning) return
-    viewport.ox += e.clientX - lastX
-    viewport.oy += e.clientY - lastY
+    const next = pending ||= { ...viewport }
+    next.ox += e.clientX - lastX
+    next.oy += e.clientY - lastY
+    queueViewport()
     lastX = e.clientX
     lastY = e.clientY
   }
 
   function onPointerUp(e: PointerEvent) {
     if (!isPanning) return
+    flushViewport()
     isPanning = false
     ;(e.currentTarget as HTMLElement)?.releasePointerCapture(e.pointerId)
     document.body.style.cursor = ''
   }
 
   function resetView() {
+    flushViewport()
     viewport.ox = 0
     viewport.oy = 0
     viewport.zoom = 1
@@ -129,6 +151,7 @@ export function useCanvas() {
   }
 
   function navigateTo(wx: number, wy: number) {
+    flushViewport()
     viewport.ox = window.innerWidth / 2 - wx * viewport.zoom
     viewport.oy = window.innerHeight / 2 - wy * viewport.zoom
   }

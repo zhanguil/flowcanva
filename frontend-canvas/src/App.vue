@@ -20,6 +20,7 @@ import { serializeGeneratedNodeContent } from './utils/imageGenerationContent'
 import { continuationContent } from './utils/productContinuation'
 import type { GenerationType } from './types/product'
 import { useProductAssets } from './composables/useProductAssets'
+import { editedImageContent } from './utils/editedImage'
 
 const consoleURL = import.meta.env.DEV ? '/' : '/'
 const isDev = import.meta.env.DEV
@@ -80,7 +81,7 @@ const {
 const { canUndo, canRedo, push: pushHistory, undo, redo } = useHistory(nodes, edges)
 
 const { assets, loadAssets, addAsset, setCategory: setAssetCategory, removeAsset } = useAssets()
-const { onImageGenerationEvent } = useImageGenerationTasks()
+const { onImageGenerationEvent, cancelImageGeneration } = useImageGenerationTasks()
 const stopImageGenerationEvents = onImageGenerationEvent(handleImageGenerationEvent)
 // 进入画布即预加载资产,避免资产节点 picker 首次打开显示"暂无资产"(之前只有打开资产库面板才触发加载)
 loadAssets()
@@ -177,6 +178,7 @@ function openPresetManager() {
 
 // Keyboard shortcuts
 function onKeydown(e: KeyboardEvent) {
+  if (document.querySelector('[data-testid="image-editor"], [data-testid="product-lock-editor"]') || (e.target as HTMLElement).closest('input, textarea, [contenteditable]')) return
   // Alt+Shift+F 整理画布
   if (e.altKey && e.shiftKey && e.key === 'F') {
     e.preventDefault()
@@ -225,7 +227,9 @@ async function onPaste(e: ClipboardEvent) {
   }
 }
 
-function assetNodeContent(asset: Asset, parentGenerationNodeId = '') {
+type CanvasImageAsset = Pick<Asset, 'id' | 'filename' | 'url' | 'size' | 'mime_type' | 'width' | 'height'>
+
+function assetNodeContent(asset: CanvasImageAsset, parentGenerationNodeId = '') {
   const generation = (asset as GeneratedImageAsset).generation || useProductAssets().findGenerationForAsset(asset.id)
   return JSON.stringify({
     asset_id: asset.id,
@@ -241,7 +245,7 @@ function assetNodeContent(asset: Asset, parentGenerationNodeId = '') {
   })
 }
 
-async function createAssetImageNode(asset: Asset, centerX: number, centerY: number, parentGenerationNodeId = '') {
+async function createAssetImageNode(asset: CanvasImageAsset, centerX: number, centerY: number, parentGenerationNodeId = '') {
   return addNode('asset', centerX, centerY, assetNodeContent(asset, parentGenerationNodeId))
 }
 
@@ -372,11 +376,6 @@ function autoArrange() {
     cx += n.width + gapX
   }
 
-  // 孤立节点每人一列
-  for (const n of disconnected) {
-    resizeNode(n.id, n.width, n.height, cx, startY)
-    cx += n.width + gapX
-  }
 }
 
 function getCanvasIdFromURL(): string | undefined {
@@ -394,6 +393,7 @@ onMounted(async () => {
       edges.value = loadedEdges
     }
   }
+  await reconcileGeneratedAssetNodes()
   await loadConfigs()
   document.addEventListener('keydown', onKeydown)
   document.addEventListener('paste', onPaste as any)
@@ -453,15 +453,100 @@ interface GeneratedAssetResult {
   height: number
 }
 
-function generatedNodeContent(node: CanvasNode, generatedAssets: GeneratedImageAsset[]) {
-  return serializeGeneratedNodeContent(node.content, generatedAssets)
+function parseNodeContent(node: CanvasNode): Record<string, any> {
+  try {
+    const parsed = JSON.parse(node.content || '{}')
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function generatedAssetFromOutput(output: any): GeneratedAssetResult | null {
+  const id = String(output?.asset_id || output?.id || '').trim()
+  const url = typeof output?.url === 'string' ? output.url : ''
+  if (!id || !url) return null
+  return {
+    id,
+    filename: String(output?.name || output?.filename || `${id}.png`),
+    url,
+    size: Number(output?.size || 0),
+    mime_type: String(output?.mime_type || 'image/png'),
+    width: Number(output?.width || 0),
+    height: Number(output?.height || 0),
+    ...(output.generation ? { generation: output.generation } : {}),
+  }
+}
+
+function restoreSelection(selection: string[]) {
+  selectNode(null)
+  for (const id of selection) {
+    if (nodes.value.some(node => node.id === id)) selectNode(id, true)
+  }
+}
+
+async function reconcileGeneratedAssetNodes() {
+  const selectionBefore = [...selectedNodeIds.value]
+  const imageNodes = nodes.value.filter(node => node.node_type === 'image')
+  const nodeWidth = 320
+  const nodeHeight = 300
+  const gap = 40
+  let changed = false
+
+  for (const source of imageNodes) {
+    const outputs = parseNodeContent(source).generated_images
+    if (!Array.isArray(outputs)) continue
+    const columns = outputs.length > 1 ? 2 : 1
+    const startLeft = source.x + Math.max(source.width, 660) + 60
+    const startTop = source.y
+
+    for (let index = 0; index < outputs.length; index++) {
+      const asset = generatedAssetFromOutput(outputs[index])
+      if (!asset) continue
+      const existing = nodes.value.find(node => {
+        if (node.node_type !== 'asset') return false
+        const content = parseNodeContent(node)
+        if (content.parent_generation_node_id !== source.id) return false
+        return content.asset_id === asset.id || content.id === asset.id || content.url === asset.url
+      })
+
+      let outputNode = existing
+      if (!outputNode) {
+        const col = index % columns
+        const row = Math.floor(index / columns)
+        const centerX = startLeft + col * (nodeWidth + gap) + nodeWidth / 2
+        const centerY = startTop + row * (nodeHeight + gap) + nodeHeight / 2
+        try {
+          outputNode = await createAssetImageNode(asset, centerX, centerY, source.id)
+          changed = true
+        } catch (error) {
+          console.error('restore generated asset node failed', error)
+          continue
+        }
+      }
+
+      if (outputNode && !edges.value.some(edge =>
+        edge.source_node_id === source.id && edge.target_node_id === outputNode!.id
+      )) {
+        try {
+          await addEdge(source.id, outputNode.id)
+          changed = true
+        } catch (error) {
+          console.error('restore generated asset edge failed', error)
+        }
+      }
+    }
+  }
+
+  if (changed) restoreSelection(selectionBefore)
 }
 
 async function handleImageGenerationEvent(event: ImageGenerationEvent) {
   if (event.type !== 'completed') return
+  if (event.request.canvasId !== canvasId.value) return
   const source = nodes.value.find(node => node.id === event.request.nodeId)
   if (!source) return
-  await updateNodeContent(source.id, generatedNodeContent(source, event.assets))
+  await updateNodeContent(source.id, serializeGeneratedNodeContent(source.content, event.assets))
   await handleGeneratedAssets({ sourceNodeId: source.id, assets: event.assets })
 }
 
@@ -494,7 +579,7 @@ async function handleGeneratedAssets(payload: { sourceNodeId: string; assets: Ge
     const row = Math.floor(i / columns)
     const centerX = startLeft + col * (nodeWidth + gap) + nodeWidth / 2
     const centerY = startTop + row * (nodeHeight + gap) + nodeHeight / 2
-    const node = await createAssetImageNode(asset as Asset, centerX, centerY, payload.sourceNodeId)
+    const node = await createAssetImageNode(asset, centerX, centerY, payload.sourceNodeId)
     if (!node) continue
     createdNodeIds.push(node.id)
     await addEdge(payload.sourceNodeId, node.id)
@@ -572,33 +657,34 @@ async function handleLoadTestCanvas() {
   }
 }
 
+async function handleSaveEditedImage(payload: { sourceNodeId: string; asset: Asset; mode: 'replace' | 'copy'; onComplete: (error?: string) => void }) {
+  const source = nodes.value.find(node => node.id === payload.sourceNodeId)
+  if (!source) { payload.onComplete('原图片节点已不存在'); return }
+  try {
+    pushHistory()
+    const content = editedImageContent(source.content, payload.asset)
+    if (payload.mode === 'replace') await updateNodeContent(source.id, content, true)
+    else {
+      const node = await addNode('asset', source.x + source.width + 200, source.y + 160, content)
+      if (!node) throw new Error('图片节点创建失败')
+      await addEdge(source.id, node.id)
+    }
+    payload.onComplete()
+  } catch { payload.onComplete('图片已上传，但节点保存失败，请重试') }
+}
+
 // 宫格分镜: 切图→生成资产节点网格排列
 async function handleGridSplit(data: { cols: number; rows: number; urls: string[] }) {
-  const sid = selectedNodeId.value
-  if (!sid) return
-  const src = nodes.value.find(n => n.id === sid)
-  if (!src) return
+  const source = nodes.value.find(node => node.id === selectedNodeId.value)
+  if (!source) return
   pushHistory()
-  const gap = 20
-  const cellW = 180
-  const cellH = 120
-  const startX = src.x + src.width + gap * 2
-  const startY = src.y
-  for (let r = 0; r < data.rows; r++) {
-    for (let c = 0; c < data.cols; c++) {
-      const idx = r * data.cols + c
-      const node = await addNode('asset' as any, startX + c * (cellW + gap), startY + r * (cellH + gap))
-      if (node) {
-        updateNodeContent(node.id, JSON.stringify({ url: data.urls[idx], name: `分镜${r+1}-${c+1}`, size: 0 }))
-        addEdge(sid, node.id)
-      }
-      // 调节点宽高
-      if (node) {
-        await new Promise(resolve => setTimeout(resolve, 50))
-        moveNode(node.id, startX + c * (cellW + gap), startY + r * (cellH + gap))
-        resizeNode(node.id, cellW, cellH, startX + c * (cellW + gap), startY + r * (cellH + gap))
-      }
-    }
+  for (let index = 0; index < data.urls.length; index++) {
+    const blob = await (await fetch(data.urls[index])).blob()
+    const asset = await addAsset(new File([blob], 'detail-' + (index + 1) + '.png', { type: 'image/png' }))
+    if (!asset) continue
+    const node = await addNode('asset', source.x + source.width + 200 + (index % data.cols) * 350,
+      source.y + 160 + Math.floor(index / data.cols) * 470, editedImageContent(source.content, asset))
+    if (node) await addEdge(source.id, node.id)
   }
 }
 
@@ -609,6 +695,7 @@ function handleLayerSelect(id: string) {
 }
 
 function handleDeleteNode(nodeId: string) {
+  cancelImageGeneration(nodeId)
   pushHistory()
   removeNode(nodeId)
   removeNodeEdges(nodeId)
@@ -720,7 +807,10 @@ async function handleSavePanel(content: string) {
   }
 
   if (node.node_type === 'asset' && !content) {
-    edges.value = edges.value.filter(e => e.source_node_id !== selectedNodeId.value)
+    const connectedEdgeIds = edges.value
+      .filter(edge => edge.source_node_id === selectedNodeId.value)
+      .map(edge => edge.id)
+    await Promise.all(connectedEdgeIds.map(edgeId => removeEdge(edgeId)))
   }
 }
 </script>
@@ -818,6 +908,7 @@ async function handleSavePanel(content: string) {
       @image-generated="handleGeneratedAssets"
       @references-uploaded="handleReferenceAssetsUploaded"
       @grid-split="handleGridSplit"
+      @save-edited="handleSaveEditedImage"
     />
 
     <LeftToolbar

@@ -393,8 +393,10 @@ func (h *Handler) persistGeneratedImage(uploadDir string, generated geminiInline
 		ID: id, Filename: filename, URL: "/uploads/" + filename, Size: int64(len(raw)),
 		MimeType: generated.MIMEType, Width: width, Height: height, Category: "AI生成", Tags: generatedImageTags(profile),
 	}
-	_, err = h.db.Exec(`INSERT INTO assets (id, filename, url, size, mime_type, width, height, category, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		asset.ID, asset.Filename, asset.URL, asset.Size, asset.MimeType, asset.Width, asset.Height, asset.Category, asset.Tags)
+	_, err = h.db.Exec(`INSERT INTO assets (id, filename, url, size, mime_type, width, height, category, tags,
+		type, thumbnail_url, aspect_ratio, source_type, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'image', ?, ?, 'generation', 'generated_result')`,
+		asset.ID, asset.Filename, asset.URL, asset.Size, asset.MimeType, asset.Width, asset.Height, asset.Category, asset.Tags,
+		asset.URL, imageAspectRatio(asset.Width, asset.Height))
 	if err != nil {
 		_ = os.Remove(filePath)
 		return GeneratedAsset{}, fmt.Errorf("登记生成资产: %w", err)

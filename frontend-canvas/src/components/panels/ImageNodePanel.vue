@@ -60,7 +60,7 @@ const models = [
   { value: 'edit', label: 'GPT Image 2' },
 ]
 const selectedRatio = ref('1:1')
-const selectedResolution = ref('1K')
+const selectedResolution = ref('2K')
 const selectedCount = ref(1)
 const selectedPreset = ref('')
 
@@ -112,6 +112,7 @@ watch(() => props.node?.id, () => {
   syncGeneratedImages(n.content)
   syncingNode = false
   selectedRatio.value = data.aspect_ratio || '1:1'
+  selectedResolution.value = data.image_size || '2K'
   generationType.value = data.generation_type || 'custom'
   nextTick(() => {
     if (!editableRef.value) return
@@ -172,6 +173,7 @@ function buildContent(extras: Record<string, any> = {}) {
   return JSON.stringify({
     ...parseNodeContent(props.node?.content),
     aspect_ratio: selectedRatio.value,
+    image_size: selectedResolution.value,
     generation_type: generationType.value,
     product_asset_id: productBinding.product.value?.id,
     product_snapshot: productBinding.product.value || undefined,

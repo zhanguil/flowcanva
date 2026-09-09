@@ -55,6 +55,13 @@ export interface Asset {
   category: string
   tags: string
   created_at: string
+	project_id?: string
+	sku_id?: string
+	source_type?: string
+	role?: string
+	parent_asset_id?: string
+	created_by?: string
+	generation_metadata?: string
 }
 
 export interface AssetListResponse {
@@ -62,4 +69,128 @@ export interface AssetListResponse {
   total: number
   page: number
   page_size: number
+}
+
+export type ProjectStatus = 'draft' | 'generating' | 'reviewing' | 'completed' | 'archived'
+
+export interface StudioProject {
+  id: string
+  workspace_id: string
+  canvas_id: string
+  name: string
+  product_name: string
+  created_by: string
+  status: ProjectStatus
+  cover_asset_id: string
+  tags: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface ProductDNA {
+  productType: string
+  structuralFeatures: Record<string, string | number | boolean>
+  materials: Record<string, string>
+  forbiddenChanges: string[]
+  allowedChanges: string[]
+}
+
+export interface ProductSKU {
+  id?: string
+  name: string
+  label: string
+  width?: number | null
+  height?: number | null
+  depth?: number | null
+  reference_asset_ids?: string[]
+  sort_order?: number
+}
+
+export interface ReferenceAsset {
+  id?: string
+  asset_id: string
+  role: string
+  weight: number
+  locked: boolean
+  description?: string
+  sort_order?: number
+}
+
+export interface ProductPack {
+  id?: string
+  project_id?: string
+  product_name: string
+  created_by?: string
+  product_dna: ProductDNA
+  skus: ProductSKU[]
+  reference_pack: { references: ReferenceAsset[] }
+}
+
+export interface StudioProjectDetail extends StudioProject {
+  product_pack?: ProductPack
+}
+
+export interface RecipeOutput {
+  outputType: string
+  aspectRatio: string
+}
+
+export interface Recipe {
+  id: string
+  name: string
+  version: number
+  outputs: RecipeOutput[]
+  prompt_template_id: string
+  estimated_cost_per_job: number
+  currency: string
+  enabled: boolean
+}
+
+export type GenerationJobStatus = 'pending' | 'queued' | 'running' | 'generated' | 'validating' | 'success' | 'failed' | 'rejected' | 'cancelled' | 'retrying'
+
+export interface GenerationJob {
+  id: string
+  project_id: string
+  recipe_run_id: string
+  sku_id: string
+  output_type: string
+  status: GenerationJobStatus
+  provider: string
+  model: string
+  aspect_ratio: string
+  retry_count: number
+  result_asset_id: string
+  error_message: string
+  estimated_cost: number
+  actual_cost: number
+}
+
+export interface RecipeRun {
+  id: string
+  project_id: string
+  recipe_id: string
+  recipe_version: number
+  request_id: string
+  status: string
+  job_count: number
+  total_cost: number
+  currency: string
+  created_by: string
+  created_at: string
+  jobs: GenerationJob[]
+}
+
+export interface GenerationProviderInfo {
+	id: string
+	name: string
+	capabilities: {
+		text_to_image: boolean
+		image_edit: boolean
+		multi_reference: boolean
+		max_reference_images: number
+		supported_aspect_ratios: string[]
+		supports_seed: boolean
+		supports_mask: boolean
+		supports_async: boolean
+	}
 }

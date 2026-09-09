@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
-import type { Node, Edge, ViewportState } from '../types'
+import type { Node, Edge, ViewportState, Asset } from '../types'
 import CanvasNode from './CanvasNode.vue'
 import TextNodePanel from './panels/TextNodePanel.vue'
 import ImageNodePanel from './panels/ImageNodePanel.vue'
@@ -15,6 +15,7 @@ import DirectorEditorModal from './DirectorEditorModal.vue'
 import { resolveNodeInputs } from '../utils/nodeInputResolver'
 import type { GenerationType, ProductAsset } from '../types/product'
 import { readContent } from '../utils/generationContext'
+import { connectionAncestors } from '../utils/canvasPerformance'
 
 const panelMap: Record<string, any> = {
   text: TextNodePanel,
@@ -62,6 +63,7 @@ const emit = defineEmits<{
   (e: 'image-generated', payload: { sourceNodeId: string; assets: any[] }): void
   (e: 'references-uploaded', payload: { targetNodeId: string; assets: any[]; onComplete?: (error?: string) => void }): void
   (e: 'continue-generation', node: Node, type: GenerationType): void
+  (e: 'save-edited', payload: { sourceNodeId: string; asset: Asset; mode: 'replace' | 'copy'; onComplete: (error?: string) => void }): void
 }>()
 
 // 连线拖拽状态
@@ -337,6 +339,8 @@ function onConnectStart(nodeId: string, dir: string, e: PointerEvent) {
   document.addEventListener('pointerup', onConnectEnd)
 }
 
+const invalidTargets = computed(() => connecting.value ? connectionAncestors(props.edges, connecting.value.sourceNodeId) : new Set<string>())
+
 function onConnectMove(e: PointerEvent) {
   if (!connecting.value) return
   e.preventDefault()
@@ -347,7 +351,7 @@ function onConnectMove(e: PointerEvent) {
   let best: { nodeId: string; dir: string; dist: number } | null = null
   for (const node of props.nodes) {
     if (node.id === connecting.value.sourceNodeId) continue
-    if (wouldCreateCycle(connecting.value.sourceNodeId, node.id)) continue
+    if (invalidTargets.value.has(node.id)) continue
     for (const dir of ['left', 'right']) {
       const pos = getHandleScreenPos(node.id, dir)
       const dist = Math.hypot(e.clientX - pos.sx, e.clientY - pos.sy)
@@ -503,6 +507,7 @@ function onPanelSave(payload: string | { nodeId: string; content: string }) {
         @save-content="(content: string) => emit('save-node-content', node.id, content)"
         @continue-generation="emit('continue-generation', node, $event)"
         @bind-product="bindProduct"
+        @save-edited="emit('save-edited', $event)"
         @edit-script="showScriptEditor = true"
         @edit-director="showDirectorEditor = true"
         @grid-split="(data: any) => emit('grid-split', data)"

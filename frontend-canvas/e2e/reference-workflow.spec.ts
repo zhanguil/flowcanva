@@ -70,7 +70,12 @@ test('drop → multi-reference → 3:4 → generated reference → 1:1 uses exac
     const response = page.waitForResponse(r => r.url().includes('/api/images/generate') && r.request().method() === 'POST')
     await page.getByTestId('generate-image').click()
     const result = await response
-    expect(result.request().postDataJSON()).toMatchObject({ reference_images: expectedURLs, reference_mode: 'explicit', aspect_ratio: ratio })
+    expect(result.request().postDataJSON()).toMatchObject({
+      reference_images: expectedURLs,
+      reference_mode: 'explicit',
+      aspect_ratio: ratio,
+      image_size: '2K',
+    })
     expect(result.status()).toBe(200)
     return (await result.json()).data[0]
   }
@@ -94,6 +99,7 @@ test('drop → multi-reference → 3:4 → generated reference → 1:1 uses exac
   const debug = (await (await request.get('/api/dev/generation-debug')).json()).data
   expect(debug.reference_image_count).toBe(1)
   expect(debug.resolved_image_assets).toContain(generated.id)
+  expect(debug.resolution).toBe('2K')
 
   // The generated selection survives a reload and the dock cannot cover Generate.
   await page.reload()

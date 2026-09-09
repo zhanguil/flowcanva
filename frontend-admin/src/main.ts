@@ -8,7 +8,7 @@ const routes = [
     path: '/',
     name: 'MyAssets',
     component: () => import('./pages/MyAssets.vue'),
-    meta: { title: '画布项目' },
+    meta: { title: '产品项目' },
   },
   {
     path: '/assets',
@@ -16,6 +16,12 @@ const routes = [
     component: () => import('./pages/AssetManager.vue'),
     meta: { title: '资产管理' },
   },
+	{
+		path: '/projects/:id',
+		name: 'ProjectDetail',
+		component: () => import('./pages/ProjectDetail.vue'),
+		meta: { title: '产品项目' },
+	},
   {
     path: '/admin',
     name: 'Dashboard',
