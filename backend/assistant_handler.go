@@ -58,7 +58,7 @@ func (h *Handler) ChatWithAssistant(c *gin.Context) {
 	}
 	model := strings.TrimSpace(h.assistantModel)
 	if model == "" {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ASSISTANT_MODEL 未配置"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "图片分析模型尚未配置"})
 		return
 	}
 	if h.vectorEngine == nil || !h.vectorEngine.Configured() {

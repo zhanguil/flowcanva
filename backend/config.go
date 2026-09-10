@@ -56,7 +56,10 @@ func loadConfig() Config {
 		CanvasDevURL:        envOrDefault("CANVAS_DEV_URL", "http://localhost:5173"),
 		VectorEngineBaseURL: os.Getenv("VECTORENGINE_BASE_URL"),
 		VectorEngineAPIKey:  os.Getenv("VECTORENGINE_API_KEY"),
-		AssistantModel:      os.Getenv("ASSISTANT_MODEL"),
+		// Product reference analysis is a visual, latency-sensitive interaction.
+		// Keep a vision-capable default so a valid VectorEngine installation works
+		// without a second, easy-to-miss model setting.
+		AssistantModel:      envOrDefault("ASSISTANT_MODEL", "gpt-5.6-sol"),
 		ImageModelFast:      envOrDefault("IMAGE_MODEL_FAST", "gemini-3.1-flash-image-preview"),
 		ImageModelPro:       envOrDefault("IMAGE_MODEL_PRO", "gemini-3-pro-image-preview"),
 		ImageModelEdit:      envOrDefault("IMAGE_MODEL_EDIT", "gpt-image-2"),
