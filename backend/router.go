@@ -141,15 +141,13 @@ func setupRouter(h *Handler, cfg Config) *gin.Engine {
 				path := c.Request.URL.Path
 				if strings.HasPrefix(path, "/canvas") {
 					// 先尝试 canvas-dist 下的实际文件(模型/图片等),读不到再回退 SPA index.html
-					serveEmbed(c, CanvasEmbedFS, "canvas-dist"+path)
-					if !c.Writer.Written() {
+					if !tryServeEmbed(c, CanvasEmbedFS, "canvas-dist"+path) {
 						serveEmbedHTML(c, CanvasEmbedFS, "canvas-dist/index.html")
 					}
 					return
 				}
 				// admin SPA: try file first, fallback to index.html
-				serveEmbed(c, AdminEmbedFS, "admin-dist"+path)
-				if !c.Writer.Written() {
+				if !tryServeEmbed(c, AdminEmbedFS, "admin-dist"+path) {
 					serveEmbedHTML(c, AdminEmbedFS, "admin-dist/index.html")
 				}
 			})
@@ -183,16 +181,23 @@ func setupRouter(h *Handler, cfg Config) *gin.Engine {
 }
 
 func serveEmbed(c *gin.Context, efs embed.FS, fp string) {
+	if !tryServeEmbed(c, efs, fp) {
+		c.Status(http.StatusNotFound)
+	}
+}
+
+func tryServeEmbed(c *gin.Context, efs embed.FS, fp string) bool {
 	fp = path.Clean(fp)
 	data, err := efs.ReadFile(fp)
 	if err != nil {
-		return
+		return false
 	}
 	ct := mime.TypeByExtension(path.Ext(fp))
 	if ct == "" {
 		ct = "application/octet-stream"
 	}
 	c.Data(http.StatusOK, ct, data)
+	return true
 }
 
 func serveEmbedHTML(c *gin.Context, efs embed.FS, fp string) {
