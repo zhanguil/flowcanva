@@ -10,3 +10,93 @@
   --color-base-200: #f3f4f6;
   --color-base-300: #e5e7eb;
 }
+
+@layer components {
+  .workspace-section {
+    @apply rounded-[28px] border border-base-200/80 bg-base-100 p-5 shadow-[0_12px_40px_rgba(15,23,42,0.04)] md:p-8;
+  }
+
+  .section-heading {
+    @apply mb-7 flex flex-wrap items-center gap-4;
+  }
+
+  .section-heading h2 {
+    @apply text-xl font-black tracking-tight;
+  }
+
+  .section-heading p {
+    @apply mt-1 text-sm text-base-content/45;
+  }
+
+  .step-number {
+    @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-black text-primary-content;
+  }
+
+  .field-label {
+    @apply mb-1.5 text-xs font-bold text-base-content/55;
+  }
+
+  .tag-group {
+    @apply rounded-2xl bg-base-200/40 p-4;
+  }
+
+  .tag-group-title {
+    @apply flex flex-wrap items-center justify-between gap-2 text-sm font-bold;
+  }
+
+  .tag-hint {
+    @apply text-[11px] font-normal text-base-content/35;
+  }
+
+  .tag-list {
+    @apply mt-3 flex min-h-7 flex-wrap gap-2;
+  }
+
+  .info-tag {
+    @apply inline-flex items-center gap-2 rounded-full border border-base-300/80 bg-base-100 px-3 py-1.5 text-xs font-medium;
+  }
+
+  .info-tag button {
+    @apply text-base-content/30 transition-colors hover:text-base-content;
+  }
+
+  .locked-tag {
+    @apply border-primary/20 bg-primary/5 text-primary;
+  }
+
+  .tag-input {
+    @apply mt-3 flex items-center border-b border-base-300/80;
+  }
+
+  .tag-input input {
+    @apply min-w-0 flex-1 bg-transparent py-2 text-xs outline-none;
+  }
+
+  .tag-input button {
+    @apply px-2 py-2 text-xs font-bold text-primary;
+  }
+
+  .sku-card {
+    @apply rounded-2xl border border-base-200 bg-base-100 p-4 transition-all;
+  }
+
+  .sku-card.selected {
+    @apply border-primary/50 bg-primary/[0.025] shadow-[0_8px_24px_rgba(78,110,242,0.08)];
+  }
+
+  .generation-console {
+    @apply rounded-[24px] border border-base-200 bg-base-100 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.07)] xl:sticky xl:top-6;
+  }
+
+  .console-row {
+    @apply mt-5 flex items-center justify-between border-b border-base-200/70 pb-4 text-sm text-base-content/55;
+  }
+
+  .aspect-button {
+    @apply rounded-xl border border-base-300 bg-base-100 px-4 py-3 text-sm font-bold transition-all hover:border-primary/40;
+  }
+
+  .aspect-button.selected {
+    @apply border-primary bg-primary text-primary-content shadow-sm;
+  }
+}

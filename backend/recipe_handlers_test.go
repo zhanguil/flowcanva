@@ -80,4 +80,47 @@ func TestRecipeRunCreatesAllJobsOnceAndRetriesOnlyFailures(t *testing.T) {
 	if states[successID].Status != "success" || states[successID].RetryCount != 0 || states[successID].ResultAssetID != "ast_ok" {
 		t.Fatalf("successful job was changed: %+v", states[successID])
 	}
+
+	single := studioRequest(t, router, http.MethodPost, "/api/generation-jobs/"+successID+"/retry", nil)
+	if single.Code != http.StatusOK {
+		t.Fatalf("single retry status=%d body=%s", single.Code, single.Body.String())
+	}
+	var singleResult struct {
+		JobID string    `json:"job_id"`
+		Run   RecipeRun `json:"run"`
+	}
+	_ = json.Unmarshal(single.Body.Bytes(), &singleResult)
+	if singleResult.JobID == successID || singleResult.Run.JobCount != 7 || len(singleResult.Run.Jobs) != 7 {
+		t.Fatalf("single regenerate did not preserve the original result: %+v", singleResult)
+	}
+}
+
+func TestRecipeRunUsesExactOutputSelectionAndCopies(t *testing.T) {
+	_, router := studioTestHandler(t)
+	created := studioRequest(t, router, http.MethodPost, "/api/projects", map[string]any{
+		"name": "电视柜批量主图", "product_name": "电视柜", "created_by": "designer-a",
+		"skus": []string{"1300", "1600", "1800"},
+	})
+	var project StudioProjectDetail
+	_ = json.Unmarshal(created.Body.Bytes(), &project)
+
+	response := studioRequest(t, router, http.MethodPost, "/api/projects/"+project.ID+"/recipe-runs", map[string]any{
+		"recipe_id": "furniture_sku_main_images", "request_id": "exact-output-copies", "created_by": "designer-a",
+		"sku_ids":          []string{project.ProductPack.SKUs[0].ID, project.ProductPack.SKUs[1].ID},
+		"selected_outputs": []map[string]any{{"outputType": "scene_front", "aspectRatio": "3:4"}},
+		"copies_per_item":  2,
+	})
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create run status=%d body=%s", response.Code, response.Body.String())
+	}
+	var run RecipeRun
+	_ = json.Unmarshal(response.Body.Bytes(), &run)
+	if run.JobCount != 4 || len(run.Jobs) != 4 {
+		t.Fatalf("jobs=%d/%d want 4", run.JobCount, len(run.Jobs))
+	}
+	for _, job := range run.Jobs {
+		if job.AspectRatio != "3:4" || job.OutputType != "scene_front" {
+			t.Fatalf("unexpected output: %+v", job)
+		}
+	}
 }

@@ -33,6 +33,7 @@ func studioTestHandler(t *testing.T) (*Handler, http.Handler) {
 	router.POST("/api/projects/:id/recipe-runs", h.CreateRecipeRun)
 	router.GET("/api/recipe-runs/:id", h.GetRecipeRun)
 	router.POST("/api/recipe-runs/:id/retry-failed", h.RetryFailedJobs)
+	router.POST("/api/generation-jobs/:id/retry", h.RetryGenerationJob)
 	return h, router
 }
 

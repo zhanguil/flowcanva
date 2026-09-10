@@ -139,20 +139,21 @@ func (h *Handler) layoutRecipeAssetNode(job GenerationJob, asset GeneratedAsset,
 	if err != nil {
 		return err
 	}
-	var skuOrder int
-	_ = h.db.QueryRow(`SELECT sort_order FROM product_skus WHERE id=?`, job.SKUID).Scan(&skuOrder)
 	var outputs []RecipeOutput
 	_ = json.Unmarshal([]byte(outputsJSON), &outputs)
-	outputOrder := 0
-	for index, output := range outputs {
-		if output.OutputType == job.OutputType && output.AspectRatio == job.AspectRatio {
-			outputOrder = index
-			break
-		}
+	columns := len(outputs)
+	if columns < 1 {
+		columns = 1
 	}
+	if columns > 4 {
+		columns = 4
+	}
+	var jobOrder int
+	_ = h.db.QueryRow(`SELECT COUNT(*) - 1 FROM generation_jobs
+		WHERE recipe_run_id=? AND rowid <= (SELECT rowid FROM generation_jobs WHERE id=?)`, job.RecipeRunID, job.ID).Scan(&jobOrder)
 	width, height := assetNodeDimensions(asset.Width, asset.Height)
-	x := originX + float64(outputOrder)*390
-	y := originY + float64(skuOrder)*420
+	x := originX + float64(jobOrder%columns)*390
+	y := originY + float64(jobOrder/columns)*420
 	content, _ := json.Marshal(map[string]any{
 		"asset_id": asset.ID, "url": asset.URL, "name": asset.Filename, "size": asset.Size,
 		"mime_type": asset.MimeType, "width": asset.Width, "height": asset.Height, "origin": "generated",

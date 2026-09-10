@@ -49,6 +49,7 @@ func setupRouter(h *Handler, cfg Config) *gin.Engine {
 		api.GET("/projects/:id/recipe-runs", h.ListProjectRecipeRuns)
 		api.GET("/recipe-runs/:id", h.GetRecipeRun)
 		api.POST("/recipe-runs/:id/retry-failed", h.RetryFailedJobs)
+		api.POST("/generation-jobs/:id/retry", h.RetryGenerationJob)
 		api.POST("/generation-jobs/:id/cancel", h.CancelGenerationJob)
 
 		api.POST("/llm/chat", h.ChatWithLLM)

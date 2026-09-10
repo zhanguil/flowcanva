@@ -59,11 +59,13 @@ type RecipeRun struct {
 }
 
 type RecipePlanRequest struct {
-	RecipeID    string   `json:"recipe_id"`
-	RequestID   string   `json:"request_id"`
-	CreatedBy   string   `json:"created_by"`
-	SKUIDs      []string `json:"sku_ids"`
-	OutputTypes []string `json:"output_types"`
-	Provider    string   `json:"provider"`
-	Model       string   `json:"model"`
+	RecipeID        string         `json:"recipe_id"`
+	RequestID       string         `json:"request_id"`
+	CreatedBy       string         `json:"created_by"`
+	SKUIDs          []string       `json:"sku_ids"`
+	OutputTypes     []string       `json:"output_types"`
+	SelectedOutputs []RecipeOutput `json:"selected_outputs"`
+	CopiesPerItem   int            `json:"copies_per_item"`
+	Provider        string         `json:"provider"`
+	Model           string         `json:"model"`
 }

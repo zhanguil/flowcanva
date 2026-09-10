@@ -58,14 +58,15 @@ func TestRecipeRunnerExecutesSixIndependentJobsAndPersistsLineage(t *testing.T) 
 	if len(requests) != 6 {
 		t.Fatalf("provider requests=%d want 6", len(requests))
 	}
-	var nodeCount, portraitCount, squareCount int
+	var nodeCount, portraitCount, squareCount, uniquePositionCount int
 	if err := h.db.QueryRow(`SELECT COUNT(*),
 		SUM(CASE WHEN height > width THEN 1 ELSE 0 END),
-		SUM(CASE WHEN height = width THEN 1 ELSE 0 END)
-		FROM nodes WHERE canvas_id=? AND node_type='asset'`, project.CanvasID).Scan(&nodeCount, &portraitCount, &squareCount); err != nil {
+		SUM(CASE WHEN height = width THEN 1 ELSE 0 END),
+		COUNT(DISTINCT printf('%.2f,%.2f', x, y))
+		FROM nodes WHERE canvas_id=? AND node_type='asset'`, project.CanvasID).Scan(&nodeCount, &portraitCount, &squareCount, &uniquePositionCount); err != nil {
 		t.Fatal(err)
 	}
-	if nodeCount != 6 || portraitCount != 3 || squareCount != 3 {
-		t.Fatalf("unexpected canvas grid nodes: total=%d portrait=%d square=%d", nodeCount, portraitCount, squareCount)
+	if nodeCount != 6 || portraitCount != 3 || squareCount != 3 || uniquePositionCount != 6 {
+		t.Fatalf("unexpected canvas grid nodes: total=%d portrait=%d square=%d positions=%d", nodeCount, portraitCount, squareCount, uniquePositionCount)
 	}
 }

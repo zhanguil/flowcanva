@@ -1,4 +1,4 @@
-import type { Canvas, NodeConfig, LogEntry, Asset, AssetListResponse, StudioProject, StudioProjectDetail, ProductPack, ProjectStatus, Recipe, RecipeRun, GenerationProviderInfo } from '../types'
+import type { AssistantAnalysisResult, Canvas, NodeConfig, LogEntry, Asset, AssetListResponse, StudioProject, StudioProjectDetail, ProductPack, ProjectStatus, Recipe, RecipeRun, RecipeRunRequest, GenerationProviderInfo } from '../types'
 
 const BASE = '/api/admin'
 const API = '/api'
@@ -144,7 +144,7 @@ export function fetchGenerationProviders() {
 	return req<GenerationProviderInfo[]>(`${API}/generation-providers`)
 }
 
-export function createRecipeRun(projectId: string, data: { recipe_id: string; request_id: string; created_by: string; sku_ids?: string[]; output_types?: string[]; provider?: string; model?: string }) {
+export function createRecipeRun(projectId: string, data: RecipeRunRequest) {
   return req<RecipeRun>(`${API}/projects/${projectId}/recipe-runs`, { method: 'POST', body: JSON.stringify(data) })
 }
 
@@ -160,6 +160,14 @@ export function retryFailedJobs(id: string) {
   return req<{ retried: number; run: RecipeRun }>(`${API}/recipe-runs/${id}/retry-failed`, { method: 'POST' })
 }
 
+export function retryGenerationJob(id: string) {
+  return req<{ job_id: string; run: RecipeRun }>(`${API}/generation-jobs/${id}/retry`, { method: 'POST' })
+}
+
 export function cancelGenerationJob(id: string) {
   return req<{ id: string; status: string }>(`${API}/generation-jobs/${id}/cancel`, { method: 'POST' })
+}
+
+export function analyzeProductReferences(data: { messages: { role: 'user' | 'assistant'; content: string }[]; selected_images: string[]; canvas_id?: string }) {
+  return req<AssistantAnalysisResult>(`${API}/assistant/chat`, { method: 'POST', body: JSON.stringify(data) })
 }

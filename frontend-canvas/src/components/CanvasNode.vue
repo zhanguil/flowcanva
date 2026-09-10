@@ -731,6 +731,7 @@ onMounted(() => {
     @pointerdown="onPointerDown"
     @pointermove="onPointerMove"
     @pointerup="onPointerUp"
+    @dragstart.prevent
   >
     <!-- 头部：图标 + 名称（悬浮，不在选中框内） -->
     <div class="flex items-center gap-1.5 px-3 pt-2 pb-2 select-none shrink-0">
@@ -832,7 +833,7 @@ onMounted(() => {
       <div v-else-if="node.node_type === 'workflow'" class="h-full p-2 overflow-y-auto">
         <template v-if="workflowContent?.outputs?.length">
           <div v-for="(o, i) in workflowContent.outputs.slice(0, 2)" :key="i" class="space-y-0.5">
-            <img v-if="o.type === 'image'" :src="o.value" class="w-full object-cover rounded border border-white/10" />
+            <img v-if="o.type === 'image'" :src="o.value" draggable="false" class="w-full object-cover rounded border border-white/10" />
             <video v-else-if="o.type === 'video'" :src="o.value" controls class="w-full rounded" />
             <audio v-else-if="o.type === 'audio'" :src="o.value" controls class="w-full" />
             <pre v-else class="text-white/60 text-xs whitespace-pre-wrap break-all">{{ o.value }}</pre>
@@ -847,7 +848,7 @@ onMounted(() => {
         @dragover="onAssetDragOver" @drop="onAssetDrop" @click="!assetImageUrl && onAssetSelectImage()">
         <!-- 图片 -->
         <template v-if="assetMediaType === 'image' && assetImageUrl">
-          <img :src="assetImageUrl" class="w-full h-full object-contain"
+          <img :src="assetImageUrl" draggable="false" class="w-full h-full object-contain"
             @load="(e) => { const size = getAssetDisplaySize(e.target as HTMLImageElement); emit('image-loaded', size); }"
             @dblclick.stop="assetPreviewOpen = true"
           />
@@ -874,7 +875,7 @@ onMounted(() => {
       <!-- 导演台节点 -->
       <div v-else-if="node.node_type === 'director'" class="h-full w-full flex flex-col items-center justify-center gap-2 px-2 py-2 text-center overflow-hidden">
         <template v-if="directorSummary?.thumbnailUrl">
-          <img :src="directorSummary.thumbnailUrl" class="w-full h-full object-cover rounded-lg pointer-events-none" alt="" />
+          <img :src="directorSummary.thumbnailUrl" draggable="false" class="w-full h-full object-cover rounded-lg pointer-events-none" alt="" />
           <div class="absolute bottom-1 left-1 text-[9px] text-white/40 bg-black/30 px-1 rounded">👤{{ directorSummary.chars }}</div>
         </template>
         <template v-else-if="directorSummary?.empty">
@@ -992,7 +993,7 @@ onMounted(() => {
           <div v-else-if="filteredPickerAssets.length === 0" class="text-white/30 text-xs text-center py-4">该分类暂无资产</div>
           <div v-else class="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto">
             <div v-for="a in filteredPickerAssets" :key="a.id" class="flex flex-col items-center gap-1 p-1.5 rounded-lg cursor-pointer hover:bg-white/10 transition-colors" @pointerdown.stop.prevent="onAssetPick(a)">
-              <img :src="a.url" class="w-full aspect-square object-cover rounded-md" @error="($event.target as HTMLImageElement).style.display='none'" />
+              <img :src="a.url" draggable="false" class="w-full aspect-square object-cover rounded-md" @error="($event.target as HTMLImageElement).style.display='none'" />
               <span class="text-[10px] text-white/50 truncate w-full text-center">{{ a.filename }}</span>
             </div>
           </div>
@@ -1042,7 +1043,7 @@ onMounted(() => {
         <button class="absolute top-4 right-4 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 z-10" @click="imagePreviewOpen = false">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
-        <img :src="imageUrls[0]" class="max-w-[95vw] max-h-[95vh] object-contain rounded-lg" @click.stop />
+        <img :src="imageUrls[0]" draggable="false" class="max-w-[95vw] max-h-[95vh] object-contain rounded-lg" @click.stop />
       </div>
     </Teleport>
 

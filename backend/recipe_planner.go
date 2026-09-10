@@ -21,6 +21,17 @@ func planRecipeJobs(project StudioProject, pack ProductPack, recipe Recipe, requ
 	for _, outputType := range request.OutputTypes {
 		selectedOutputs[outputType] = true
 	}
+	selectedOutputOptions := map[string]bool{}
+	for _, output := range request.SelectedOutputs {
+		selectedOutputOptions[recipeOutputKey(output)] = true
+	}
+	copiesPerItem := request.CopiesPerItem
+	if copiesPerItem <= 0 {
+		copiesPerItem = 1
+	}
+	if copiesPerItem > 8 {
+		return nil, errors.New("每项生成数量不能超过 8 张")
+	}
 	provider := strings.TrimSpace(request.Provider)
 	if provider == "" {
 		provider = "legacy"
@@ -35,25 +46,34 @@ func planRecipeJobs(project StudioProject, pack ProductPack, recipe Recipe, requ
 			continue
 		}
 		for _, output := range recipe.Outputs {
-			if len(selectedOutputs) > 0 && !selectedOutputs[output.OutputType] {
+			if len(selectedOutputOptions) > 0 && !selectedOutputOptions[recipeOutputKey(output)] {
+				continue
+			}
+			if len(selectedOutputOptions) == 0 && len(selectedOutputs) > 0 && !selectedOutputs[output.OutputType] {
 				continue
 			}
 			if output.OutputType == "" || output.AspectRatio == "" {
 				return nil, errors.New("Recipe 输出配置不完整")
 			}
-			jobs = append(jobs, GenerationJob{
-				ID: "job_" + uuid.New().String()[:8], ProjectID: project.ID, SKUID: sku.ID,
-				OutputType: output.OutputType, Status: "queued", Provider: provider, Model: request.Model,
-				Prompt: compileRecipePrompt(project, pack, sku, output), PromptVersion: 1,
-				ReferencePack: pack.References, AspectRatio: output.AspectRatio,
-				CreatedBy: createdBy, EstimatedCost: recipe.EstimatedCostPerJob,
-			})
+			for copyIndex := 0; copyIndex < copiesPerItem; copyIndex++ {
+				jobs = append(jobs, GenerationJob{
+					ID: "job_" + uuid.New().String()[:8], ProjectID: project.ID, SKUID: sku.ID,
+					OutputType: output.OutputType, Status: "queued", Provider: provider, Model: request.Model,
+					Prompt: compileRecipePrompt(project, pack, sku, output), PromptVersion: 1,
+					ReferencePack: pack.References, AspectRatio: output.AspectRatio,
+					CreatedBy: createdBy, EstimatedCost: recipe.EstimatedCostPerJob,
+				})
+			}
 		}
 	}
 	if len(jobs) == 0 {
 		return nil, errors.New("没有可生成的 SKU")
 	}
 	return jobs, nil
+}
+
+func recipeOutputKey(output RecipeOutput) string {
+	return strings.TrimSpace(output.OutputType) + "\x00" + strings.TrimSpace(output.AspectRatio)
 }
 
 func compileRecipePrompt(project StudioProject, pack ProductPack, sku ProductSKU, output RecipeOutput) string {

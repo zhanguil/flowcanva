@@ -135,6 +135,18 @@ export interface RecipeOutput {
   aspectRatio: string
 }
 
+export interface RecipeRunRequest {
+  recipe_id: string
+  request_id: string
+  created_by: string
+  sku_ids?: string[]
+  output_types?: string[]
+  selected_outputs?: RecipeOutput[]
+  copies_per_item?: number
+  provider?: string
+  model?: string
+}
+
 export interface Recipe {
   id: string
   name: string
@@ -193,4 +205,9 @@ export interface GenerationProviderInfo {
 		supports_mask: boolean
 		supports_async: boolean
 	}
+}
+
+export interface AssistantAnalysisResult {
+  content: string
+  model_profile: string
 }
